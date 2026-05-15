@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- Safari Web App & Mobile Responsiveness Tags -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Flashcards">
+    <meta name="theme-color" content="#000000">
+    
+    <title>Minimal Flashcards</title>
+    
+    <!-- SheetJS for Excel Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+    <style>
+        /* 1. Base Design: Pure Black & White */
+        :root {
+            --bg-color: #000000;
+            --text-color: #ffffff;
+            --card-bg: #111111;
+            --card-border: #333333;
+            --btn-bg: #1a1a1a;
+            --btn-hover: #2a2a2a;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            min-height: -webkit-fill-available; /* Safari fix */
+            overscroll-behavior-y: none; /* Prevents pull-to-refresh on mobile */
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 2. Flashcard & Flip Animation */
+        .scene {
+            width: 90vw;
+            max-width: 500px;
+            height: 350px;
+            perspective: 1200px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+            transform-style: preserve-3d;
+            cursor: pointer;
+        }
+
+        .card.is-flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden; /* Safari */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            font-size: 2.5rem;
+            font-weight: 500;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            word-wrap: break-word;
+            overflow: hidden;
+        }
+
+        .card-face.card-back {
+            transform: rotateY(180deg);
+            background-color: #0a0a0a;
+        }
+
+        /* Image handling inside cards */
+        .card-face img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 12px;
+        }
+
+        /* 3. Controls & UI styling */
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button, .upload-btn {
+            background-color: var(--btn-bg);
+            color: var(--text-color);
+            border: 1px solid var(--card-border);
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        button:active, .upload-btn:active {
+            transform: scale(0.96);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .status {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scene">
+        <div class="card" id="flashcard">
+            <div class="card-face card-front" id="cardFront">
+                Upload Excel to Start
+            </div>
+            <div class="card-face card-back" id="cardBack">
+                <!-- Back side content -->
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="btnPrev" disabled>Previous</button>
+        
+        <label class="upload-btn">
+            Import Excel
+            <input type="file" id="fileUpload" accept=".xlsx, .xls">
+        </label>
+        
+        <button id="btnNext" disabled>Next</button>
+    </div>
+
+    <div class="status" id="statusText">No cards loaded</div>
+
+    <script>
+        // State variables
+        let flashcards = [];
+        let currentIndex = 0;
+
+        // DOM Elements
+        const card = document.getElementById('flashcard');
+        const cardFront = document.getElementById('cardFront');
+        const cardBack = document.getElementById('cardBack');
+        const btnPrev = document.getElementById('btnPrev');
+        const btnNext = document.getElementById('btnNext');
+        const fileUpload = document.getElementById('fileUpload');
+        const statusText = document.getElementById('statusText');
+
+        // 1. Flip Animation Logic
+        card.addEventListener('click', () => {
+            if (flashcards.length > 0) {
+                card.classList.toggle('is-flipped');
+            }
+        });
+
+        // 2. Google Drive Link Converter & Content Renderer
+        function processContent(content) {
+            if (content === undefined || content === null) return "";
+            
+            let text = String(content).trim();
+
+            // Regex to match standard Google Drive shareable links
+            const driveUrlRegex = /(?:https?:\/\/)?(?:drive\.google\.com\/(?:file\/d\/|open\?id=))([a-zA-Z0-9_-]+)/i;
+            const match = text.match(driveUrlRegex);
+
+            if (match && match[1]) {
+                const fileId = match[1];
+                // Convert to direct image URL format
+                const directUrl = `https://drive.google.com/uc?id=${fileId}&export=view`;
+                return `<img src="${directUrl}" alt="Flashcard Image">`;
+            }
+
+            // Check if it's a standard image URL just in case
+            if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+                return `<img src="${text}" alt="Flashcard Image">`;
+            }
+
+            // Return plain text/numbers/alphabets
+            return text;
+        }
+
+        // 3. UI Updater
+        function updateUI() {
+            if (flashcards.length === 0) return;
+
+            // Reset flip state quickly before swapping text
+            card.classList.remove('is-flipped');
+
+            // Timeout ensures text swaps after card is facing front
+            setTimeout(() => {
+                const currentCard = flashcards[currentIndex];
+                cardFront.innerHTML = processContent(currentCard.front);
+                cardBack.innerHTML = processContent(currentCard.back);
+
+                statusText.innerText = `Card ${currentIndex + 1} of ${flashcards.length}`;
+                
+                btnPrev.disabled = currentIndex === 0;
+                btnNext.disabled = currentIndex === flashcards.length - 1;
+            }, 150);
+        }
+
+        // 4. Navigation controls
+        btnPrev.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevents flipping when clicking buttons
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateUI();
+            }
+        });
+
+        btnNext.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (currentIndex < flashcards.length - 1) {
+                currentIndex++;
+                updateUI();
+            }
+        });
+
+        // 5. Excel Import Logic using SheetJS
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // Get first sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // Convert sheet to array of arrays
+                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                flashcards = [];
+                
+                // Loop through rows (Column A = row[0], Column B = row[1])
+                rows.forEach(row => {
+                    const frontData = row[0];
+                    const backData = row[1];
+                    
+                    // Only add if at least one column has data
+                    if (frontData || backData) {
+                        flashcards.push({
+                            front: frontData || " ", // Fallback space if empty
+                            back: backData || " "
+                        });
+                    }
+                });
+
+                if (flashcards.length > 0) {
+                    currentIndex = 0;
+                    updateUI();
+                } else {
+                    cardFront.innerText = "No data found in Excel";
+                    statusText.innerText = "Error: Blank sheet";
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
+
