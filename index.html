@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Flashcards">
@@ -18,7 +17,6 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
     <style>
-        /* 1. Base Design: Pure Black & White */
         :root {
             --bg-color: #000000;
             --text-color: #ffffff;
@@ -30,31 +28,40 @@
             --accent-btn-text: #000000;
         }
 
-        body {
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
             background-color: var(--bg-color);
+            overflow: hidden;
+        }
+
+        body {
             color: var(--text-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            /* Push everything to respect mobile safe areas, especially iOS swipe bar */
-            padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            height: 100vh;
-            height: -webkit-fill-available; /* Safari fix for actual visible viewport */
-            overscroll-behavior-y: none; /* Prevents pull-to-refresh on mobile */
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* 2. Flashcard & Flip Animation */
-        .scene {
-            flex: 1 1 auto; /* Expands to take all available vertical space */
+        .app-container {
+            display: flex;
+            flex-direction: column;
             width: 100%;
-            max-width: 800px; /* Adapts cleanly on desktop/tablets */
-            perspective: 1200px;
-            margin-bottom: 20px;
-            margin-top: 10px;
+            height: 100%;
+            height: -webkit-fill-available;
+            padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px;
+            box-sizing: border-box;
+        }
+
+        .scene {
+            flex: 1;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 20px auto;
+            position: relative;
+            min-height: 0;
         }
 
         .card {
@@ -74,15 +81,11 @@
             width: 100%;
             height: 100%;
             backface-visibility: hidden;
-            -webkit-backface-visibility: hidden; /* Safari */
-            
-            /* Responsive Content Formatting */
+            -webkit-backface-visibility: hidden; 
             display: flex;
             flex-direction: column;
-            /* "safe center" prevents tops of long overflowing text from being clipped */
-            align-items: safe center;
-            justify-content: safe center;
-            
+            align-items: center;
+            justify-content: center;
             background-color: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 24px;
@@ -91,12 +94,8 @@
             box-sizing: border-box;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             word-wrap: break-word;
-            
-            /* Enable scrolling for long text */
             overflow-y: auto;
-            -webkit-overflow-scrolling: touch; /* Smooth scrolling iOS */
-            
-            /* Base font defaults */
+            -webkit-overflow-scrolling: touch;
             font-size: 2.5rem;
             font-weight: 500;
             line-height: 1.4;
@@ -107,7 +106,6 @@
             background-color: #0a0a0a;
         }
 
-        /* Responsive styling for internal media */
         .card-face iframe {
             width: 100%;
             height: 100%;
@@ -122,7 +120,6 @@
             border-radius: 12px;
         }
 
-        /* 3. Controls & UI styling */
         .controls-container {
             display: flex;
             flex-direction: column;
@@ -130,7 +127,8 @@
             align-items: center;
             width: 100%;
             max-width: 800px;
-            flex: 0 0 auto; /* Forces controls to stay safely at the bottom */
+            margin: 0 auto;
+            flex-shrink: 0;
         }
 
         .controls {
@@ -156,12 +154,11 @@
             text-align: center;
         }
 
-        /* Highlighting the primary Flip action */
         #btnFlip {
             background-color: var(--accent-btn);
             color: var(--accent-btn-text);
             border: 1px solid var(--accent-btn);
-            flex: 1.5; /* Slightly wider button for ergonomics */
+            flex: 1.5;
         }
 
         button:active, .upload-btn:active {
@@ -181,42 +178,43 @@
             margin-top: 10px;
             font-size: 0.9rem;
             color: #888;
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
-    <div class="scene">
-        <div class="card" id="flashcard">
-            <div class="card-face card-front" id="cardFront">
-                Upload Excel to Start
-            </div>
-            <div class="card-face card-back" id="cardBack">
+    <div class="app-container">
+        <div class="scene">
+            <div class="card" id="flashcard">
+                <div class="card-face card-front" id="cardFront">
+                    Upload Excel to Start
                 </div>
+                <div class="card-face card-back" id="cardBack">
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-container">
+            <div class="controls">
+                <button id="btnPrev" disabled>Prev</button>
+                <button id="btnFlip" disabled>Flip Card</button>
+                <button id="btnNext" disabled>Next</button>
+            </div>
+            
+            <label class="upload-btn" style="width: 100%; box-sizing: border-box;">
+                Import Excel
+                <input type="file" id="fileUpload" accept=".xlsx, .xls">
+            </label>
+            
+            <div class="status" id="statusText">No cards loaded</div>
         </div>
     </div>
-
-    <div class="controls-container">
-        <div class="controls">
-            <button id="btnPrev" disabled>Prev</button>
-            <button id="btnFlip" disabled>Flip Card</button>
-            <button id="btnNext" disabled>Next</button>
-        </div>
-        
-        <label class="upload-btn" style="width: 100%; box-sizing: border-box;">
-            Import Excel
-            <input type="file" id="fileUpload" accept=".xlsx, .xls">
-        </label>
-    </div>
-
-    <div class="status" id="statusText">No cards loaded</div>
 
     <script>
-        // State variables
         let flashcards = [];
         let currentIndex = 0;
 
-        // DOM Elements
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
@@ -226,25 +224,26 @@
         const fileUpload = document.getElementById('fileUpload');
         const statusText = document.getElementById('statusText');
 
-        // 1. Dedicated Flip Button Logic
         btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) {
                 card.classList.toggle('is-flipped');
             }
         });
 
-        // 2. Dynamic Font Sizing for long content
         function adjustTypography(element, text) {
             const len = text.length;
-            // Never drop below standard readability (1.2rem)
+            element.style.justifyContent = "center";
+            
             if (len > 300) {
                 element.style.fontSize = "1.2rem";
-                element.style.textAlign = "left"; 
-            } else if (len > 150) {
-                element.style.fontSize = "1.6rem";
                 element.style.textAlign = "left";
+                element.style.justifyContent = "flex-start";
+            } else if (len > 150) {
+                element.style.fontSize = "1.5rem";
+                element.style.textAlign = "left";
+                element.style.justifyContent = "flex-start";
             } else if (len > 50) {
-                element.style.fontSize = "2rem";
+                element.style.fontSize = "1.8rem";
                 element.style.textAlign = "center";
             } else {
                 element.style.fontSize = "2.5rem";
@@ -252,7 +251,6 @@
             }
         }
 
-        // 3. Google Drive Link Converter & Content Renderer
         function processContent(content) {
             if (content === undefined || content === null) return "";
             
@@ -279,25 +277,20 @@
             return text;
         }
 
-        // 4. UI Updater
         function updateUI() {
             if (flashcards.length === 0) return;
 
-            // Reset flip state quickly before swapping text
             card.classList.remove('is-flipped');
 
-            // Timeout ensures text swaps after card is facing front
             setTimeout(() => {
                 const currentCard = flashcards[currentIndex];
                 
-                // Process content and adjust typography based on length
                 cardFront.innerHTML = processContent(currentCard.front);
                 cardBack.innerHTML = processContent(currentCard.back);
                 
                 adjustTypography(cardFront, currentCard.front);
                 adjustTypography(cardBack, currentCard.back);
 
-                // Reset Scroll Position for new cards
                 cardFront.scrollTop = 0;
                 cardBack.scrollTop = 0;
 
@@ -309,7 +302,6 @@
             }, 150);
         }
 
-        // 5. Navigation controls
         btnPrev.addEventListener('click', () => {
             if (currentIndex > 0) {
                 currentIndex--;
@@ -324,13 +316,9 @@
             }
         });
 
-        // 6. External Hardware Keyboard Mapping
         window.addEventListener('keydown', (e) => {
-            // Failsafe: Ignore keydown if somehow a user touches an input device
-            // This prevents intercepting the on-screen mobile keyboard
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
 
-            // Define which face is currently visible to scroll the right container
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
 
             switch(e.key) {
@@ -345,16 +333,15 @@
                     break;
                 case 'ArrowUp':
                     activeFace.scrollBy({ top: -60, behavior: 'smooth' });
-                    e.preventDefault(); // Prevents page scrolling
+                    e.preventDefault();
                     break;
                 case 'ArrowDown':
                     activeFace.scrollBy({ top: 60, behavior: 'smooth' });
-                    e.preventDefault(); // Prevents page scrolling
+                    e.preventDefault();
                     break;
             }
         });
 
-        // 7. Excel Import Logic using SheetJS
         fileUpload.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
