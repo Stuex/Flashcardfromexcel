@@ -45,21 +45,48 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* 2 & 6. Enlarge Flashcard Area & Mobile-First: Reduced padding */
         .app-container {
             display: flex;
             flex-direction: column;
             width: 100%;
             height: 100%;
             height: -webkit-fill-available;
-            padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px;
+            padding: env(safe-area-inset-top, 8px) 8px env(safe-area-inset-bottom, 8px) 8px;
             box-sizing: border-box;
+            position: relative;
         }
 
+        /* 3. Current Card Number Overlay */
+        .card-counter-overlay {
+            position: absolute;
+            top: env(safe-area-inset-top, 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(4px);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .card-counter-overlay.visible {
+            opacity: 1;
+        }
+
+        /* 2. Enlarge Flashcard Area: Reduced margin to maximize space */
         .scene {
             flex: 1;
             width: 100%;
             max-width: 800px;
-            margin: 0 auto 20px auto;
+            margin: 0 auto 10px auto; 
             position: relative;
             min-height: 0;
         }
@@ -84,7 +111,7 @@
             -webkit-backface-visibility: hidden; 
             background-color: var(--card-bg);
             border: 1px solid var(--card-border);
-            border-radius: 24px;
+            border-radius: 20px;
             box-sizing: border-box;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             overflow: hidden;
@@ -96,7 +123,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            padding: 32px 24px;
+            padding: 24px 16px;
             box-sizing: border-box;
             overflow-y: scroll !important;
             -webkit-overflow-scrolling: touch !important;
@@ -107,11 +134,9 @@
             line-height: 1.4;
             display: block;
             text-align: center;
-            
-            /* Stops the annoying highlighting markers from locking up gestures */
             user-select: none !important;
             -webkit-user-select: none !important;
-            touch-action: none !important; /* Passes touch mechanics directly to our JS engine */
+            touch-action: none !important;
         }
 
         .text-centered-helper {
@@ -144,41 +169,47 @@
             background: transparent;
         }
 
+        /* 5. Image Area Improvements: Maximize image scaling */
         .card-content-scroll img {
             max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: auto;
+            max-height: 80vh;
             object-fit: contain;
-            border-radius: 12px;
+            border-radius: 8px;
             display: block;
             margin: 0 auto;
         }
 
+        /* 2. Enlarge Flashcard Area: Optimized spacing around controls */
         .controls-container {
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 10px;
             align-items: center;
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
             flex-shrink: 0;
+            padding-bottom: env(safe-area-inset-bottom, 8px);
         }
 
         .controls {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             align-items: center;
             width: 100%;
             justify-content: space-between;
         }
 
+        /* 2. Enlarge Flashcard Area: Reduced button size and padding */
         button, .upload-btn {
             background-color: var(--btn-bg);
             color: var(--text-color);
             border: 1px solid var(--card-border);
-            padding: 16px 20px;
-            border-radius: 12px;
-            font-size: 1rem;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -206,18 +237,13 @@
         input[type="file"] {
             display: none;
         }
-
-        .status {
-            margin-top: 10px;
-            font-size: 0.9rem;
-            color: #888;
-            text-align: center;
-        }
     </style>
 </head>
 <body>
 
     <div class="app-container">
+        <div class="card-counter-overlay" id="counterOverlay"></div>
+
         <div class="scene">
             <div class="card" id="flashcard">
                 <div class="card-face card-front">
@@ -240,18 +266,17 @@
                 <button id="btnNext" disabled>Next</button>
             </div>
             
-            <label class="upload-btn" style="width: 100%; box-sizing: border-box;">
+            <label class="upload-btn" id="uploadLabel" style="width: 100%; box-sizing: border-box;">
                 Import Excel
                 <input type="file" id="fileUpload" accept=".xlsx, .xls">
             </label>
-            
-            <div class="status" id="statusText">No cards loaded</div>
         </div>
     </div>
 
     <script>
         let flashcards = [];
         let currentIndex = 0;
+        let overlayTimeout; // 3. For tracking fade timeout
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -260,13 +285,25 @@
         const btnFlip = document.getElementById('btnFlip');
         const btnNext = document.getElementById('btnNext');
         const fileUpload = document.getElementById('fileUpload');
-        const statusText = document.getElementById('statusText');
+        const counterOverlay = document.getElementById('counterOverlay');
+        const uploadLabel = document.getElementById('uploadLabel');
 
         btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) {
                 card.classList.toggle('is-flipped');
             }
         });
+
+        // 3. Current Card Number UX: Show overlay for 1s
+        function showCounter() {
+            counterOverlay.innerText = `${currentIndex + 1} / ${flashcards.length}`;
+            counterOverlay.classList.add('visible');
+            
+            clearTimeout(overlayTimeout);
+            overlayTimeout = setTimeout(() => {
+                counterOverlay.classList.remove('visible');
+            }, 1000);
+        }
 
         function adjustTypography(element, text) {
             const len = text.length;
@@ -286,13 +323,13 @@
                 element.style.fontSize = "1.8rem";
                 element.style.textAlign = "center";
                 if (helper && element.clientHeight > helper.clientHeight) {
-                    helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 32) + "px";
+                    helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
                 }
             } else {
                 element.style.fontSize = "2.5rem";
                 element.style.textAlign = "center";
                 if (helper && element.clientHeight > helper.clientHeight) {
-                    helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 32) + "px";
+                    helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
                 }
             }
         }
@@ -340,7 +377,7 @@
                 cardFront.scrollTop = 0;
                 cardBack.scrollTop = 0;
 
-                statusText.innerText = `Card ${currentIndex + 1} of ${flashcards.length}`;
+                showCounter(); // 3. Show dynamic overlay
                 
                 btnPrev.disabled = currentIndex === 0;
                 btnNext.disabled = currentIndex === flashcards.length - 1;
@@ -388,7 +425,6 @@
             }
         });
 
-        // Hardened Touch Drag Scroll Injector Engine
         function applyTouchScrolling(element) {
             let startY = 0;
             let currentScrollTop = 0;
@@ -400,15 +436,11 @@
 
             element.addEventListener('touchmove', (e) => {
                 const moveY = e.touches[0].pageY;
-                // Calculate physical movement offset distance
                 const diffY = startY - moveY;
-                
-                // Directly scroll element viewport by movement delta
                 element.scrollTop = currentScrollTop + diffY;
             }, { passive: true });
         }
 
-        // Apply manually to both card sides
         applyTouchScrolling(cardFront);
         applyTouchScrolling(cardBack);
 
@@ -442,11 +474,13 @@
                 });
 
                 if (flashcards.length > 0) {
+                    // 4. Post-Import Layout Optimization: Hide upload button completely to free space
+                    uploadLabel.style.display = 'none';
                     currentIndex = 0;
                     updateUI();
                 } else {
                     cardFront.innerHTML = '<div class="text-centered-helper">No data found in Excel</div>';
-                    statusText.innerText = "Error: Blank sheet";
+                    showCounter(); // Even on error, can show overlay if desired
                     btnFlip.disabled = true;
                 }
             };
