@@ -2,16 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!-- Safari Web App & Mobile Responsiveness Tags -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Flashcards">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#000000">
+    
+    <link rel="manifest" href='data:application/manifest+json;charset=utf-8,{"name":"Minimal Flashcards","short_name":"Flashcards","display":"standalone","background_color":"#000000","theme_color":"#000000","icons":[{"src":"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"192\" height=\"192\" style=\"background:%23000\"></svg>","sizes":"192x192","type":"image/png"}]}'>
+    <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' style='background:%23000'></svg>">
     
     <title>Minimal Flashcards</title>
     
-    <!-- SheetJS for Excel Parsing -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
     <style>
@@ -23,6 +26,8 @@
             --card-border: #333333;
             --btn-bg: #1a1a1a;
             --btn-hover: #2a2a2a;
+            --accent-btn: #ffffff;
+            --accent-btn-text: #000000;
         }
 
         body {
@@ -30,24 +35,26 @@
             color: var(--text-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
-            padding: 0;
+            /* Push everything to respect mobile safe areas, especially iOS swipe bar */
+            padding: env(safe-area-inset-top, 16px) 16px env(safe-area-inset-bottom, 16px) 16px;
+            box-sizing: border-box;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            min-height: -webkit-fill-available; /* Safari fix */
+            height: 100vh;
+            height: -webkit-fill-available; /* Safari fix for actual visible viewport */
             overscroll-behavior-y: none; /* Prevents pull-to-refresh on mobile */
             -webkit-tap-highlight-color: transparent;
         }
 
         /* 2. Flashcard & Flip Animation */
         .scene {
-            width: 90vw;
-            max-width: 500px;
-            height: 350px;
+            flex: 1 1 auto; /* Expands to take all available vertical space */
+            width: 100%;
+            max-width: 800px; /* Adapts cleanly on desktop/tablets */
             perspective: 1200px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            margin-top: 10px;
         }
 
         .card {
@@ -56,7 +63,6 @@
             position: relative;
             transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
             transform-style: preserve-3d;
-            cursor: pointer;
         }
 
         .card.is-flipped {
@@ -69,20 +75,31 @@
             height: 100%;
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden; /* Safari */
+            
+            /* Responsive Content Formatting */
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
+            /* "safe center" prevents tops of long overflowing text from being clipped */
+            align-items: safe center;
+            justify-content: safe center;
+            
             background-color: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 24px;
-            font-size: 2.5rem;
-            font-weight: 500;
             text-align: center;
-            padding: 20px;
+            padding: 24px !important; 
             box-sizing: border-box;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             word-wrap: break-word;
-            overflow: hidden;
+            
+            /* Enable scrolling for long text */
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch; /* Smooth scrolling iOS */
+            
+            /* Base font defaults */
+            font-size: 2.5rem;
+            font-weight: 500;
+            line-height: 1.4;
         }
 
         .card-face.card-back {
@@ -90,17 +107,7 @@
             background-color: #0a0a0a;
         }
 
-                        /* Dynamic containment for text, standard images, and Google Drive iframes */
-        .card-face {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            box-sizing: border-box;
-            overflow: hidden;
-            padding: 0px !important; 
-        }
-
+        /* Responsive styling for internal media */
         .card-face iframe {
             width: 100%;
             height: 100%;
@@ -109,32 +116,52 @@
         }
 
         .card-face img {
-            max-width: 90%;
-            max-height: 90%;
+            max-width: 100%;
+            max-height: 100%;
             object-fit: contain;
             border-radius: 12px;
         }
 
         /* 3. Controls & UI styling */
-        .controls {
+        .controls-container {
             display: flex;
+            flex-direction: column;
             gap: 15px;
             align-items: center;
-            flex-wrap: wrap;
-            justify-content: center;
+            width: 100%;
+            max-width: 800px;
+            flex: 0 0 auto; /* Forces controls to stay safely at the bottom */
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            width: 100%;
+            justify-content: space-between;
         }
 
         button, .upload-btn {
             background-color: var(--btn-bg);
             color: var(--text-color);
             border: 1px solid var(--card-border);
-            padding: 14px 24px;
+            padding: 16px 20px;
             border-radius: 12px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
             user-select: none;
+            flex: 1;
+            text-align: center;
+        }
+
+        /* Highlighting the primary Flip action */
+        #btnFlip {
+            background-color: var(--accent-btn);
+            color: var(--accent-btn-text);
+            border: 1px solid var(--accent-btn);
+            flex: 1.5; /* Slightly wider button for ergonomics */
         }
 
         button:active, .upload-btn:active {
@@ -142,7 +169,7 @@
         }
 
         button:disabled {
-            opacity: 0.4;
+            opacity: 0.3;
             cursor: not-allowed;
         }
 
@@ -151,7 +178,7 @@
         }
 
         .status {
-            margin-top: 20px;
+            margin-top: 10px;
             font-size: 0.9rem;
             color: #888;
         }
@@ -165,20 +192,21 @@
                 Upload Excel to Start
             </div>
             <div class="card-face card-back" id="cardBack">
-                <!-- Back side content -->
-            </div>
+                </div>
         </div>
     </div>
 
-    <div class="controls">
-        <button id="btnPrev" disabled>Previous</button>
+    <div class="controls-container">
+        <div class="controls">
+            <button id="btnPrev" disabled>Prev</button>
+            <button id="btnFlip" disabled>Flip Card</button>
+            <button id="btnNext" disabled>Next</button>
+        </div>
         
-        <label class="upload-btn">
+        <label class="upload-btn" style="width: 100%; box-sizing: border-box;">
             Import Excel
             <input type="file" id="fileUpload" accept=".xlsx, .xls">
         </label>
-        
-        <button id="btnNext" disabled>Next</button>
     </div>
 
     <div class="status" id="statusText">No cards loaded</div>
@@ -193,18 +221,38 @@
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
         const btnPrev = document.getElementById('btnPrev');
+        const btnFlip = document.getElementById('btnFlip');
         const btnNext = document.getElementById('btnNext');
         const fileUpload = document.getElementById('fileUpload');
         const statusText = document.getElementById('statusText');
 
-        // 1. Flip Animation Logic
-        card.addEventListener('click', () => {
+        // 1. Dedicated Flip Button Logic
+        btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) {
                 card.classList.toggle('is-flipped');
             }
         });
 
-        // 2. Google Drive Link Converter & Content Renderer
+        // 2. Dynamic Font Sizing for long content
+        function adjustTypography(element, text) {
+            const len = text.length;
+            // Never drop below standard readability (1.2rem)
+            if (len > 300) {
+                element.style.fontSize = "1.2rem";
+                element.style.textAlign = "left"; 
+            } else if (len > 150) {
+                element.style.fontSize = "1.6rem";
+                element.style.textAlign = "left";
+            } else if (len > 50) {
+                element.style.fontSize = "2rem";
+                element.style.textAlign = "center";
+            } else {
+                element.style.fontSize = "2.5rem";
+                element.style.textAlign = "center";
+            }
+        }
+
+        // 3. Google Drive Link Converter & Content Renderer
         function processContent(content) {
             if (content === undefined || content === null) return "";
             
@@ -212,15 +260,12 @@
 
             if (text.includes("drive.google.com")) {
                 let fileId = "";
-                
                 if (text.includes("/file/d/")) {
                     fileId = text.split("/file/d/")[1].split("/")[0].split("?")[0];
                 } else if (text.includes("id=")) {
                     fileId = text.split("id=")[1].split("&")[0];
                 }
-
                 if (fileId) {
-                    // Generates a secure iframe pointing to Google's official presentation layout
                     return `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="autoplay"></iframe>`;
                 }
             }
@@ -234,8 +279,7 @@
             return text;
         }
 
-
-        // 3. UI Updater
+        // 4. UI Updater
         function updateUI() {
             if (flashcards.length === 0) return;
 
@@ -245,34 +289,72 @@
             // Timeout ensures text swaps after card is facing front
             setTimeout(() => {
                 const currentCard = flashcards[currentIndex];
+                
+                // Process content and adjust typography based on length
                 cardFront.innerHTML = processContent(currentCard.front);
                 cardBack.innerHTML = processContent(currentCard.back);
+                
+                adjustTypography(cardFront, currentCard.front);
+                adjustTypography(cardBack, currentCard.back);
+
+                // Reset Scroll Position for new cards
+                cardFront.scrollTop = 0;
+                cardBack.scrollTop = 0;
 
                 statusText.innerText = `Card ${currentIndex + 1} of ${flashcards.length}`;
                 
                 btnPrev.disabled = currentIndex === 0;
                 btnNext.disabled = currentIndex === flashcards.length - 1;
+                btnFlip.disabled = false;
             }, 150);
         }
 
-        // 4. Navigation controls
-        btnPrev.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevents flipping when clicking buttons
+        // 5. Navigation controls
+        btnPrev.addEventListener('click', () => {
             if (currentIndex > 0) {
                 currentIndex--;
                 updateUI();
             }
         });
 
-        btnNext.addEventListener('click', (e) => {
-            e.stopPropagation();
+        btnNext.addEventListener('click', () => {
             if (currentIndex < flashcards.length - 1) {
                 currentIndex++;
                 updateUI();
             }
         });
 
-        // 5. Excel Import Logic using SheetJS
+        // 6. External Hardware Keyboard Mapping
+        window.addEventListener('keydown', (e) => {
+            // Failsafe: Ignore keydown if somehow a user touches an input device
+            // This prevents intercepting the on-screen mobile keyboard
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+            // Define which face is currently visible to scroll the right container
+            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+
+            switch(e.key) {
+                case 'ArrowLeft':
+                    if (!btnPrev.disabled) btnPrev.click();
+                    break;
+                case 'ArrowRight':
+                    if (!btnNext.disabled) btnNext.click();
+                    break;
+                case 'Enter':
+                    if (!btnFlip.disabled) btnFlip.click();
+                    break;
+                case 'ArrowUp':
+                    activeFace.scrollBy({ top: -60, behavior: 'smooth' });
+                    e.preventDefault(); // Prevents page scrolling
+                    break;
+                case 'ArrowDown':
+                    activeFace.scrollBy({ top: 60, behavior: 'smooth' });
+                    e.preventDefault(); // Prevents page scrolling
+                    break;
+            }
+        });
+
+        // 7. Excel Import Logic using SheetJS
         fileUpload.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -283,24 +365,20 @@
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
                 
-                // Get first sheet
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 
-                // Convert sheet to array of arrays
                 const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
                 flashcards = [];
                 
-                // Loop through rows (Column A = row[0], Column B = row[1])
                 rows.forEach(row => {
                     const frontData = row[0];
                     const backData = row[1];
                     
-                    // Only add if at least one column has data
                     if (frontData || backData) {
                         flashcards.push({
-                            front: frontData || " ", // Fallback space if empty
+                            front: frontData || " ", 
                             back: backData || " "
                         });
                     }
@@ -312,6 +390,7 @@
                 } else {
                     cardFront.innerText = "No data found in Excel";
                     statusText.innerText = "Error: Blank sheet";
+                    btnFlip.disabled = true;
                 }
             };
 
