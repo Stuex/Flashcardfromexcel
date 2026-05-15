@@ -90,10 +90,27 @@
             background-color: #0a0a0a;
         }
 
-        /* Image handling inside cards */
+                        /* Dynamic containment for text, standard images, and Google Drive iframes */
+        .card-face {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            overflow: hidden;
+            padding: 0px !important; 
+        }
+
+        .card-face iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+        }
+
         .card-face img {
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 90%;
+            max-height: 90%;
             object-fit: contain;
             border-radius: 12px;
         }
@@ -193,25 +210,30 @@
             
             let text = String(content).trim();
 
-            // Regex to match standard Google Drive shareable links
-            const driveUrlRegex = /(?:https?:\/\/)?(?:drive\.google\.com\/(?:file\/d\/|open\?id=))([a-zA-Z0-9_-]+)/i;
-            const match = text.match(driveUrlRegex);
+            if (text.includes("drive.google.com")) {
+                let fileId = "";
+                
+                if (text.includes("/file/d/")) {
+                    fileId = text.split("/file/d/")[1].split("/")[0].split("?")[0];
+                } else if (text.includes("id=")) {
+                    fileId = text.split("id=")[1].split("&")[0];
+                }
 
-            if (match && match[1]) {
-                const fileId = match[1];
-                // Convert to direct image URL format
-                const directUrl = `https://drive.google.com/uc?id=${fileId}&export=view`;
-                return `<img src="${directUrl}" alt="Flashcard Image">`;
+                if (fileId) {
+                    // Generates a secure iframe pointing to Google's official presentation layout
+                    return `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="autoplay"></iframe>`;
+                }
             }
 
-            // Check if it's a standard image URL just in case
-            if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-                return `<img src="${text}" alt="Flashcard Image">`;
+            if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i) || text.startsWith('http')) {
+                if (text.startsWith('http')) {
+                    return `<img src="${text}" alt="Flashcard Image">`;
+                }
             }
 
-            // Return plain text/numbers/alphabets
             return text;
         }
+
 
         // 3. UI Updater
         function updateUI() {
@@ -298,4 +320,3 @@
     </script>
 </body>
 </html>
-
