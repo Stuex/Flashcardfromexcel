@@ -348,27 +348,55 @@
         }
 
         function processContent(contentData) {
-            if (!contentData) return "";
-            let htmlOutput = "";
+    if (!contentData) return "";
+    let htmlOutput = "";
 
-            if (contentData.text) {
-                let text = contentData.text;
-                if (text.includes("drive.google.com")) {
-                    let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
-                    if (fileId) htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="autoplay"></iframe>`;
-                } else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i) || text.startsWith('http')) {
-                    htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
-                } else {
-                    htmlOutput += `<div class="text-centered-helper">${text}</div>`;
-                }
+    if (contentData.text) {
+        let text = contentData.text.trim();
+        
+        // 1. Check for Google Drive Links
+        if (text.includes("drive.google.com")) {
+            let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
+            if (fileId) {
+                htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
             }
-
-            if (contentData.image) {
-                htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+        } 
+        // 2. Check for YouTube Links (Standard, Shortened, and Shorts formats)
+        else if (text.includes("youtube.com") || text.includes("youtu.be")) {
+            let videoId = "";
+            if (text.includes("youtu.be/")) {
+                videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
+            } else if (text.includes("embed/")) {
+                videoId = text.split("embed/")[1].split(/[?#]/)[0];
+            } else if (text.includes("shorts/")) {
+                videoId = text.split("shorts/")[1].split(/[?#]/)[0];
+            } else if (text.includes("v=")) {
+                videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
             }
-
-            return htmlOutput || `<div class="text-centered-helper"></div>`;
+            
+            if (videoId) {
+                htmlOutput += `<iframe src="https://www.youtube.com/embed/${videoId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+            } else {
+                // Fallback to text if parsing fails
+                htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+            }
+        } 
+        // 3. Check for Direct Images
+        else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+            htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
+        } 
+        // 4. Fallback to Plain Text
+        else {
+            htmlOutput += `<div class="text-centered-helper">${text}</div>`;
         }
+    }
+
+    if (contentData.image) {
+        htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+    }
+
+    return htmlOutput || `<div class="text-centered-helper"></div>`;
+}
 
         function enableImagePanZoom(img) {
             let scale = 1;
