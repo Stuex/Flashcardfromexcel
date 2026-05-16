@@ -14,7 +14,7 @@
     
     <title>Minimal Flashcards</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 
     <style>
         :root {
@@ -45,7 +45,6 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* 2 & 6. Enlarge Flashcard Area & Mobile-First: Reduced padding */
         .app-container {
             display: flex;
             flex-direction: column;
@@ -57,7 +56,6 @@
             position: relative;
         }
 
-        /* 3. Current Card Number Overlay */
         .card-counter-overlay {
             position: absolute;
             top: env(safe-area-inset-top, 12px);
@@ -77,11 +75,8 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
 
-        .card-counter-overlay.visible {
-            opacity: 1;
-        }
+        .card-counter-overlay.visible { opacity: 1; }
 
-        /* 2. Enlarge Flashcard Area: Reduced margin to maximize space */
         .scene {
             flex: 1;
             width: 100%;
@@ -99,9 +94,7 @@
             transform-style: preserve-3d;
         }
 
-        .card.is-flipped {
-            transform: rotateY(180deg);
-        }
+        .card.is-flipped { transform: rotateY(180deg); }
 
         .card-face {
             position: absolute;
@@ -119,10 +112,7 @@
 
         .card-content-scroll {
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             padding: 24px 16px;
             box-sizing: border-box;
             overflow-y: scroll !important;
@@ -146,16 +136,9 @@
             padding: 0;
         }
 
-        .card-content-scroll::-webkit-scrollbar {
-            width: 6px;
-        }
-        .card-content-scroll::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .card-content-scroll::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 10px;
-        }
+        .card-content-scroll::-webkit-scrollbar { width: 6px; }
+        .card-content-scroll::-webkit-scrollbar-track { background: transparent; }
+        .card-content-scroll::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
 
         .card-face.card-back {
             transform: rotateY(180deg);
@@ -163,13 +146,11 @@
         }
 
         .card-content-scroll iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            background: transparent;
+            width: 100%; height: 100%;
+            border: none; background: transparent;
         }
 
-        /* 5. Image Area Improvements: Maximize image scaling */
+        /* Initial rigid, auto-fit image configuration */
         .card-content-scroll img {
             max-width: 100%;
             width: 100%;
@@ -179,9 +160,10 @@
             border-radius: 8px;
             display: block;
             margin: 0 auto;
+            position: relative;
+            z-index: 10;
         }
 
-        /* 2. Enlarge Flashcard Area: Optimized spacing around controls */
         .controls-container {
             display: flex;
             flex-direction: column;
@@ -202,7 +184,6 @@
             justify-content: space-between;
         }
 
-        /* 2. Enlarge Flashcard Area: Reduced button size and padding */
         button, .upload-btn {
             background-color: var(--btn-bg);
             color: var(--text-color);
@@ -225,18 +206,9 @@
             flex: 1.5;
         }
 
-        button:active, .upload-btn:active {
-            transform: scale(0.96);
-        }
-
-        button:disabled {
-            opacity: 0.3;
-            cursor: not-allowed;
-        }
-
-        input[type="file"] {
-            display: none;
-        }
+        button:active, .upload-btn:active { transform: scale(0.96); }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        input[type="file"] { display: none; }
     </style>
 </head>
 <body>
@@ -276,7 +248,7 @@
     <script>
         let flashcards = [];
         let currentIndex = 0;
-        let overlayTimeout; // 3. For tracking fade timeout
+        let overlayTimeout;
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -288,30 +260,30 @@
         const counterOverlay = document.getElementById('counterOverlay');
         const uploadLabel = document.getElementById('uploadLabel');
 
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+            return window.btoa(binary);
+        }
+
         btnFlip.addEventListener('click', () => {
-            if (flashcards.length > 0) {
-                card.classList.toggle('is-flipped');
-            }
+            if (flashcards.length > 0) card.classList.toggle('is-flipped');
         });
 
-        // 3. Current Card Number UX: Show overlay for 1s
         function showCounter() {
             counterOverlay.innerText = `${currentIndex + 1} / ${flashcards.length}`;
             counterOverlay.classList.add('visible');
-            
             clearTimeout(overlayTimeout);
-            overlayTimeout = setTimeout(() => {
-                counterOverlay.classList.remove('visible');
-            }, 1000);
+            overlayTimeout = setTimeout(() => { counterOverlay.classList.remove('visible'); }, 1000);
         }
 
         function adjustTypography(element, text) {
+            if (!text) text = "";
             const len = text.length;
             const helper = element.querySelector('.text-centered-helper');
-            
-            if (helper) {
-                helper.style.marginTop = "0px";
-            }
+            if (helper) helper.style.marginTop = "0px";
             
             if (len > 300) {
                 element.style.fontSize = "1.2rem";
@@ -334,35 +306,151 @@
             }
         }
 
-        function processContent(content) {
-            if (content === undefined || content === null) return "";
-            
-            let text = String(content).trim();
+        function processContent(contentData) {
+            if (!contentData) return "";
+            let htmlOutput = "";
 
-            if (text.includes("drive.google.com")) {
-                let fileId = "";
-                if (text.includes("/file/d/")) {
-                    fileId = text.split("/file/d/")[1].split("/")[0].split("?")[0];
-                } else if (text.includes("id=")) {
-                    fileId = text.split("id=")[1].split("&")[0];
-                }
-                if (fileId) {
-                    return `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="autoplay"></iframe>`;
-                }
-            }
-
-            if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i) || text.startsWith('http')) {
-                if (text.startsWith('http')) {
-                    return `<img src="${text}" alt="Flashcard Image">`;
+            if (contentData.text) {
+                let text = contentData.text;
+                if (text.includes("drive.google.com")) {
+                    let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
+                    if (fileId) htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="autoplay"></iframe>`;
+                } else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i) || text.startsWith('http')) {
+                    htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
+                } else {
+                    htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                 }
             }
 
-            return `<div class="text-centered-helper">${text}</div>`;
+            if (contentData.image) {
+                htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+            }
+
+            return htmlOutput || `<div class="text-centered-helper"></div>`;
+        }
+
+        // --- NEW FEATURE: Interactive Touch Pan & Pinch Zoom for Images ---
+        function enableImagePanZoom(img) {
+            let scale = 1;
+            let startDistance = 0, startScale = 1;
+            let isPanning = false;
+            let startX = 0, startY = 0;
+            let translateX = 0, translateY = 0;
+            let lastTranslateX = 0, lastTranslateY = 0;
+
+            img.style.transformOrigin = 'center';
+            img.style.transition = 'transform 0.2s ease-out';
+            img.style.touchAction = 'none'; // Prevent standard pull-to-refresh on image
+
+            const updateTransform = () => {
+                if (scale < 1) { scale = 1; translateX = 0; translateY = 0; }
+                img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            };
+
+            let lastTap = 0;
+
+            // Touch support (Mobile)
+            img.addEventListener('touchstart', (e) => {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                
+                // Double tap
+                if (tapLength < 300 && tapLength > 0 && e.touches.length === 1) {
+                    scale = scale > 1 ? 1 : 2.5; 
+                    translateX = 0; translateY = 0;
+                    img.style.transition = 'transform 0.3s ease-in-out';
+                    updateTransform();
+                    e.preventDefault();
+                }
+                lastTap = currentTime;
+
+                if (e.touches.length === 2) { // Pinch Start
+                    e.preventDefault(); e.stopPropagation();
+                    isPanning = false;
+                    const dx = e.touches[0].pageX - e.touches[1].pageX;
+                    const dy = e.touches[0].pageY - e.touches[1].pageY;
+                    startDistance = Math.hypot(dx, dy);
+                    startScale = scale;
+                    img.style.transition = 'none'; 
+                } else if (e.touches.length === 1 && scale > 1) { // Pan Start
+                    e.preventDefault(); e.stopPropagation(); // Stop card scroll when zoomed
+                    isPanning = true;
+                    startX = e.touches[0].pageX;
+                    startY = e.touches[0].pageY;
+                    lastTranslateX = translateX;
+                    lastTranslateY = translateY;
+                    img.style.transition = 'none';
+                }
+            }, { passive: false });
+
+            img.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 2) { // Pinch move
+                    e.preventDefault(); e.stopPropagation();
+                    const dx = e.touches[0].pageX - e.touches[1].pageX;
+                    const dy = e.touches[0].pageY - e.touches[1].pageY;
+                    scale = startScale * (Math.hypot(dx, dy) / startDistance);
+                    if (scale > 5) scale = 5;
+                    updateTransform();
+                } else if (e.touches.length === 1 && isPanning && scale > 1) { // Pan move
+                    e.preventDefault(); e.stopPropagation();
+                    translateX = lastTranslateX + (e.touches[0].pageX - startX);
+                    translateY = lastTranslateY + (e.touches[0].pageY - startY);
+                    updateTransform();
+                }
+            }, { passive: false });
+
+            img.addEventListener('touchend', (e) => {
+                if (e.touches.length < 2) img.style.transition = 'transform 0.2s ease-out';
+                if (e.touches.length === 0) {
+                    isPanning = false;
+                    if (scale <= 1) { scale = 1; translateX = 0; translateY = 0; updateTransform(); }
+                }
+            }, { passive: false });
+
+            // Mouse Support (Desktop View)
+            img.addEventListener('mousedown', (e) => {
+                if (scale > 1) {
+                    isPanning = true;
+                    startX = e.pageX; startY = e.pageY;
+                    lastTranslateX = translateX; lastTranslateY = translateY;
+                    img.style.transition = 'none';
+                    e.preventDefault(); e.stopPropagation();
+                }
+            });
+
+            img.addEventListener('mousemove', (e) => {
+                if (isPanning && scale > 1) {
+                    translateX = lastTranslateX + (e.pageX - startX);
+                    translateY = lastTranslateY + (e.pageY - startY);
+                    updateTransform();
+                    e.stopPropagation();
+                }
+            });
+
+            const stopMousePan = () => { isPanning = false; img.style.transition = 'transform 0.2s ease-out'; };
+            img.addEventListener('mouseup', stopMousePan);
+            img.addEventListener('mouseleave', stopMousePan);
+
+            img.addEventListener('dblclick', (e) => {
+                scale = scale > 1 ? 1 : 2.5;
+                translateX = 0; translateY = 0;
+                img.style.transition = 'transform 0.3s ease-in-out';
+                updateTransform();
+                e.preventDefault(); e.stopPropagation();
+            });
+
+            img.addEventListener('wheel', (e) => {
+                if (scale > 1) { e.preventDefault(); e.stopPropagation(); }
+                scale += e.deltaY < 0 ? 0.1 : -0.1;
+                if (scale > 5) scale = 5;
+                if (scale < 1) { scale = 1; translateX = 0; translateY = 0; }
+                img.style.transition = 'transform 0.1s ease-out';
+                updateTransform();
+            }, { passive: false });
         }
 
         function updateUI() {
             if (flashcards.length === 0) return;
-
             card.classList.remove('is-flipped');
 
             setTimeout(() => {
@@ -371,13 +459,17 @@
                 cardFront.innerHTML = processContent(currentCard.front);
                 cardBack.innerHTML = processContent(currentCard.back);
                 
-                adjustTypography(cardFront, currentCard.front);
-                adjustTypography(cardBack, currentCard.back);
+                adjustTypography(cardFront, currentCard.front.text);
+                adjustTypography(cardBack, currentCard.back.text);
+
+                // Bind Interactive Zoom/Pan to injected images
+                cardFront.querySelectorAll('img').forEach(enableImagePanZoom);
+                cardBack.querySelectorAll('img').forEach(enableImagePanZoom);
 
                 cardFront.scrollTop = 0;
                 cardBack.scrollTop = 0;
 
-                showCounter(); // 3. Show dynamic overlay
+                showCounter();
                 
                 btnPrev.disabled = currentIndex === 0;
                 btnNext.disabled = currentIndex === flashcards.length - 1;
@@ -385,106 +477,99 @@
             }, 150);
         }
 
-        btnPrev.addEventListener('click', () => {
-            if (currentIndex > 0) {
-                currentIndex--;
-                updateUI();
-            }
-        });
-
-        btnNext.addEventListener('click', () => {
-            if (currentIndex < flashcards.length - 1) {
-                currentIndex++;
-                updateUI();
-            }
-        });
+        btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
+        btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
         window.addEventListener('keydown', (e) => {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
-
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-
             switch(e.key) {
-                case 'ArrowLeft':
-                    if (!btnPrev.disabled) btnPrev.click();
-                    break;
-                case 'ArrowRight':
-                    if (!btnNext.disabled) btnNext.click();
-                    break;
-                case 'Enter':
-                    if (!btnFlip.disabled) btnFlip.click();
-                    break;
-                case 'ArrowUp':
-                    activeFace.scrollBy({ top: -60, behavior: 'smooth' });
-                    e.preventDefault();
-                    break;
-                case 'ArrowDown':
-                    activeFace.scrollBy({ top: 60, behavior: 'smooth' });
-                    e.preventDefault();
-                    break;
+                case 'ArrowLeft': if (!btnPrev.disabled) btnPrev.click(); break;
+                case 'ArrowRight': if (!btnNext.disabled) btnNext.click(); break;
+                case 'Enter': if (!btnFlip.disabled) btnFlip.click(); break;
+                case 'ArrowUp': activeFace.scrollBy({ top: -60, behavior: 'smooth' }); e.preventDefault(); break;
+                case 'ArrowDown': activeFace.scrollBy({ top: 60, behavior: 'smooth' }); e.preventDefault(); break;
             }
         });
 
         function applyTouchScrolling(element) {
-            let startY = 0;
-            let currentScrollTop = 0;
-
+            let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
                 startY = e.touches[0].pageY;
                 currentScrollTop = element.scrollTop;
             }, { passive: true });
-
             element.addEventListener('touchmove', (e) => {
-                const moveY = e.touches[0].pageY;
-                const diffY = startY - moveY;
-                element.scrollTop = currentScrollTop + diffY;
+                element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
             }, { passive: true });
         }
 
         applyTouchScrolling(cardFront);
         applyTouchScrolling(cardBack);
 
-        fileUpload.addEventListener('change', (e) => {
+        fileUpload.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
 
-            reader.onload = function(e) {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
+            reader.onload = async function(e) {
+                const data = e.target.result;
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(data);
                 
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                
-                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
+                const worksheet = workbook.worksheets[0];
                 flashcards = [];
-                
-                rows.forEach(row => {
-                    const frontData = row[0];
-                    const backData = row[1];
+                const rowDataMap = new Map();
+
+                worksheet.eachRow((row, rowNumber) => {
+                    const rowIndex = rowNumber - 1; 
+                    const frontText = row.getCell(1).text || "";
+                    const backText = row.getCell(2).text || "";
                     
-                    if (frontData || backData) {
+                    if (frontText.trim() || backText.trim()) {
+                        rowDataMap.set(rowIndex, { frontText: frontText.trim(), frontImage: null, backText: backText.trim(), backImage: null });
+                    }
+                });
+
+                const images = worksheet.getImages();
+                for (const image of images) {
+                    const rowIndex = Math.floor(image.range.tl.row);
+                    const colIndex = Math.floor(image.range.tl.col); 
+                    const imgData = workbook.getImage(image.imageId);
+                    
+                    if (imgData) {
+                        const base64 = arrayBufferToBase64(imgData.buffer);
+                        const dataUri = `data:image/${imgData.extension};base64,${base64}`;
+                        
+                        if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
+                        
+                        const cardData = rowDataMap.get(rowIndex);
+                        if (colIndex === 0) cardData.frontImage = dataUri;
+                        else if (colIndex === 1) cardData.backImage = dataUri;
+                    }
+                }
+
+                const sortedIndices = Array.from(rowDataMap.keys()).sort((a, b) => a - b);
+                sortedIndices.forEach(idx => {
+                    const data = rowDataMap.get(idx);
+                    if (data.frontText || data.frontImage || data.backText || data.backImage) {
                         flashcards.push({
-                            front: frontData || " ", 
-                            back: backData || " "
+                            front: { text: data.frontText, image: data.frontImage },
+                            back: { text: data.backText, image: data.backImage }
                         });
                     }
                 });
 
                 if (flashcards.length > 0) {
-                    // 4. Post-Import Layout Optimization: Hide upload button completely to free space
                     uploadLabel.style.display = 'none';
                     currentIndex = 0;
                     updateUI();
                 } else {
                     cardFront.innerHTML = '<div class="text-centered-helper">No data found in Excel</div>';
-                    showCounter(); // Even on error, can show overlay if desired
+                    showCounter();
                     btnFlip.disabled = true;
                 }
             };
-
             reader.readAsArrayBuffer(file);
         });
     </script>
