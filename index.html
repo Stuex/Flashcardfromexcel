@@ -10,7 +10,7 @@
     <meta name="theme-color" content="#000000">
     
     <link rel="manifest" href='data:application/manifest+json;charset=utf-8,{"name":"Minimal Flashcards","short_name":"Flashcards","display":"standalone","background_color":"#000000","theme_color":"#000000","icons":[{"src":"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"192\" height=\"192\" style=\"background:%23000\"></svg>","sizes":"192x192","type":"image/png"}]}'>
-    <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' style='background:%23000'></svg>">
+    <link class="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192' style='background:%23000'></svg>">
     
     <title>Minimal Flashcards</title>
     
@@ -97,7 +97,6 @@
 
         .card.is-flipped { transform: rotateY(180deg); }
 
-        /* Force hardware acceleration and prevent graphical bleeding */
         .card-face {
             position: absolute;
             width: 100%;
@@ -270,6 +269,46 @@
             return window.btoa(binary);
         }
 
+        // Downscale large 3.5MB+ cell images to lightweight 1200px max web-optimized layouts
+        function compressImageURI(base64Str) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.src = base64Str;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    const MAX_WIDTH = 1200;
+                    const MAX_HEIGHT = 1200;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    ctx.drawImage(img, 0, 0, width, height);
+                    // Export as JPEG at 75% quality factor
+                    const compressedURI = canvas.toDataURL('image/jpeg', 0.75);
+                    resolve(compressedURI);
+                };
+                img.onerror = () => {
+                    resolve(base64Str); // Fallback to raw if dynamic scale fails
+                };
+            });
+        }
+
         btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) card.classList.toggle('is-flipped');
         });
@@ -351,7 +390,6 @@
             let lastTap = 0;
 
             img.addEventListener('touchstart', (e) => {
-                // Prevent touch bubbles from leaking through to the card container
                 e.stopPropagation(); 
                 
                 const currentTime = new Date().getTime();
@@ -512,64 +550,88 @@
             const file = e.target.files[0];
             if (!file) return;
 
+            // Trigger non-blocking visual feedback states immediately
+            uploadLabel.innerText = "Reading Excel data...";
+            uploadLabel.style.pointerEvents = "none";
+            cardFront.innerHTML = '<div class="text-centered-helper">Reading Excel data...</div>';
+
             const reader = new FileReader();
 
             reader.onload = async function(e) {
-                const data = e.target.result;
-                const workbook = new ExcelJS.Workbook();
-                await workbook.xlsx.load(data);
-                
-                const worksheet = workbook.worksheets[0];
-                flashcards = [];
-                const rowDataMap = new Map();
-
-                worksheet.eachRow((row, rowNumber) => {
-                    const rowIndex = rowNumber - 1; 
-                    const frontText = row.getCell(1).text || "";
-                    const backText = row.getCell(2).text || "";
+                try {
+                    const data = e.target.result;
+                    const workbook = new ExcelJS.Workbook();
+                    await workbook.xlsx.load(data);
                     
-                    if (frontText.trim() || backText.trim()) {
-                        rowDataMap.set(rowIndex, { frontText: frontText.trim(), frontImage: null, backText: backText.trim(), backImage: null });
-                    }
-                });
+                    const worksheet = workbook.worksheets[0];
+                    flashcards = [];
+                    const rowDataMap = new Map();
 
-                const images = worksheet.getImages();
-                for (const image of images) {
-                    const rowIndex = Math.floor(image.range.tl.row);
-                    const colIndex = Math.floor(image.range.tl.col); 
-                    const imgData = workbook.getImage(image.imageId);
-                    
-                    if (imgData) {
-                        const base64 = arrayBufferToBase64(imgData.buffer);
-                        const dataUri = `data:image/${imgData.extension};base64,${base64}`;
+                    worksheet.eachRow((row, rowNumber) => {
+                        const rowIndex = rowNumber - 1; 
+                        const frontText = row.getCell(1).text || "";
+                        const backText = row.getCell(2).text || "";
                         
-                        if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
+                        if (frontText.trim() || backText.trim()) {
+                            rowDataMap.set(rowIndex, { frontText: frontText.trim(), frontImage: null, backText: backText.trim(), backImage: null });
+                        }
+                    });
+
+                    const images = worksheet.getImages();
+                    let processedCount = 0;
+
+                    for (const image of images) {
+                        processedCount++;
+                        // Dynamically update UI text so users know processing is moving
+                        uploadLabel.innerText = `Optimizing image ${processedCount} of ${images.length}...`;
+                        cardFront.innerHTML = `<div class="text-centered-helper">Processing image ${processedCount} / ${images.length}...</div>`;
+
+                        const rowIndex = Math.floor(image.range.tl.row);
+                        const colIndex = Math.floor(image.range.tl.col); 
+                        const imgData = workbook.getImage(image.imageId);
                         
-                        const cardData = rowDataMap.get(rowIndex);
-                        if (colIndex === 0) cardData.frontImage = dataUri;
-                        else if (colIndex === 1) cardData.backImage = dataUri;
+                        if (imgData) {
+                            const rawBase64 = arrayBufferToBase64(imgData.buffer);
+                            const rawUri = `data:image/${imgData.extension};base64,${rawBase64}`;
+                            
+                            // Await the asynchronous compression task to prevent blocking the UI
+                            const optimizedUri = await compressImageURI(rawUri);
+                            
+                            if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
+                            
+                            const cardData = rowDataMap.get(rowIndex);
+                            if (colIndex === 0) cardData.frontImage = optimizedUri;
+                            else if (colIndex === 1) cardData.backImage = optimizedUri;
+                        }
                     }
-                }
 
-                const sortedIndices = Array.from(rowDataMap.keys()).sort((a, b) => a - b);
-                sortedIndices.forEach(idx => {
-                    const data = rowDataMap.get(idx);
-                    if (data.frontText || data.frontImage || data.backText || data.backImage) {
-                        flashcards.push({
-                            front: { text: data.frontText, image: data.frontImage },
-                            back: { text: data.backText, image: data.backImage }
-                        });
+                    const sortedIndices = Array.from(rowDataMap.keys()).sort((a, b) => a - b);
+                    sortedIndices.forEach(idx => {
+                        const data = rowDataMap.get(idx);
+                        if (data.frontText || data.frontImage || data.backText || data.backImage) {
+                            flashcards.push({
+                                front: { text: data.frontText, image: data.frontImage },
+                                back: { text: data.backText, image: data.backImage }
+                            });
+                        }
+                    });
+
+                    if (flashcards.length > 0) {
+                        uploadLabel.style.display = 'none';
+                        currentIndex = 0;
+                        updateUI();
+                    } else {
+                        cardFront.innerHTML = '<div class="text-centered-helper">No data found in Excel</div>';
+                        uploadLabel.innerText = "Import Excel";
+                        uploadLabel.style.pointerEvents = "auto";
+                        showCounter();
+                        btnFlip.disabled = true;
                     }
-                });
-
-                if (flashcards.length > 0) {
-                    uploadLabel.style.display = 'none';
-                    currentIndex = 0;
-                    updateUI();
-                } else {
-                    cardFront.innerHTML = '<div class="text-centered-helper">No data found in Excel</div>';
-                    showCounter();
-                    btnFlip.disabled = true;
+                } catch(err) {
+                    console.error(err);
+                    cardFront.innerHTML = '<div class="text-centered-helper">Error reading file structure.</div>';
+                    uploadLabel.innerText = "Import Excel";
+                    uploadLabel.style.pointerEvents = "auto";
                 }
             };
             reader.readAsArrayBuffer(file);
