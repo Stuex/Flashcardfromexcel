@@ -84,6 +84,7 @@
             margin: 0 auto 10px auto; 
             position: relative;
             min-height: 0;
+            perspective: 1000px;
         }
 
         .card {
@@ -96,18 +97,20 @@
 
         .card.is-flipped { transform: rotateY(180deg); }
 
+        /* Force hardware acceleration and prevent graphical bleeding */
         .card-face {
             position: absolute;
             width: 100%;
             height: 100%;
-            backface-visibility: hidden;
-            -webkit-backface-visibility: hidden; 
+            backface-visibility: hidden !important;
+            -webkit-backface-visibility: hidden !important; 
             background-color: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 20px;
             box-sizing: border-box;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             overflow: hidden;
+            transform: rotateX(0deg) rotateY(0deg);
         }
 
         .card-content-scroll {
@@ -150,7 +153,6 @@
             border: none; background: transparent;
         }
 
-        /* Initial rigid, auto-fit image configuration */
         .card-content-scroll img {
             max-width: 100%;
             width: 100%;
@@ -329,7 +331,6 @@
             return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
 
-        // --- NEW FEATURE: Interactive Touch Pan & Pinch Zoom for Images ---
         function enableImagePanZoom(img) {
             let scale = 1;
             let startDistance = 0, startScale = 1;
@@ -340,7 +341,7 @@
 
             img.style.transformOrigin = 'center';
             img.style.transition = 'transform 0.2s ease-out';
-            img.style.touchAction = 'none'; // Prevent standard pull-to-refresh on image
+            img.style.touchAction = 'none';
 
             const updateTransform = () => {
                 if (scale < 1) { scale = 1; translateX = 0; translateY = 0; }
@@ -349,12 +350,13 @@
 
             let lastTap = 0;
 
-            // Touch support (Mobile)
             img.addEventListener('touchstart', (e) => {
+                // Prevent touch bubbles from leaking through to the card container
+                e.stopPropagation(); 
+                
                 const currentTime = new Date().getTime();
                 const tapLength = currentTime - lastTap;
                 
-                // Double tap
                 if (tapLength < 300 && tapLength > 0 && e.touches.length === 1) {
                     scale = scale > 1 ? 1 : 2.5; 
                     translateX = 0; translateY = 0;
@@ -364,16 +366,16 @@
                 }
                 lastTap = currentTime;
 
-                if (e.touches.length === 2) { // Pinch Start
-                    e.preventDefault(); e.stopPropagation();
+                if (e.touches.length === 2) {
+                    e.preventDefault();
                     isPanning = false;
                     const dx = e.touches[0].pageX - e.touches[1].pageX;
                     const dy = e.touches[0].pageY - e.touches[1].pageY;
                     startDistance = Math.hypot(dx, dy);
                     startScale = scale;
                     img.style.transition = 'none'; 
-                } else if (e.touches.length === 1 && scale > 1) { // Pan Start
-                    e.preventDefault(); e.stopPropagation(); // Stop card scroll when zoomed
+                } else if (e.touches.length === 1 && scale > 1) {
+                    e.preventDefault();
                     isPanning = true;
                     startX = e.touches[0].pageX;
                     startY = e.touches[0].pageY;
@@ -384,15 +386,16 @@
             }, { passive: false });
 
             img.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 2) { // Pinch move
-                    e.preventDefault(); e.stopPropagation();
+                e.stopPropagation();
+                if (e.touches.length === 2) {
+                    e.preventDefault();
                     const dx = e.touches[0].pageX - e.touches[1].pageX;
                     const dy = e.touches[0].pageY - e.touches[1].pageY;
                     scale = startScale * (Math.hypot(dx, dy) / startDistance);
                     if (scale > 5) scale = 5;
                     updateTransform();
-                } else if (e.touches.length === 1 && isPanning && scale > 1) { // Pan move
-                    e.preventDefault(); e.stopPropagation();
+                } else if (e.touches.length === 1 && isPanning && scale > 1) {
+                    e.preventDefault();
                     translateX = lastTranslateX + (e.touches[0].pageX - startX);
                     translateY = lastTranslateY + (e.touches[0].pageY - startY);
                     updateTransform();
@@ -400,6 +403,7 @@
             }, { passive: false });
 
             img.addEventListener('touchend', (e) => {
+                e.stopPropagation();
                 if (e.touches.length < 2) img.style.transition = 'transform 0.2s ease-out';
                 if (e.touches.length === 0) {
                     isPanning = false;
@@ -407,7 +411,6 @@
                 }
             }, { passive: false });
 
-            // Mouse Support (Desktop View)
             img.addEventListener('mousedown', (e) => {
                 if (scale > 1) {
                     isPanning = true;
@@ -462,7 +465,6 @@
                 adjustTypography(cardFront, currentCard.front.text);
                 adjustTypography(cardBack, currentCard.back.text);
 
-                // Bind Interactive Zoom/Pan to injected images
                 cardFront.querySelectorAll('img').forEach(enableImagePanZoom);
                 cardBack.querySelectorAll('img').forEach(enableImagePanZoom);
 
