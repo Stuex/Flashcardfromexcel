@@ -210,53 +210,14 @@
         button:active, .upload-btn:active { transform: scale(0.96); }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         input[type="file"] { display: none; }
-
-        /* --- NEW CSS FEATURES --- */
-        .hide-controls {
-            display: none !important;
-        }
-
-        .scene.full-screen {
-            margin-bottom: 0; 
-        }
-
-        .card-face.scrolling-active {
-            box-shadow: 0 0 20px 5px rgba(0, 255, 204, 0.4), inset 0 0 10px rgba(0, 255, 204, 0.2);
-            border: 1px solid #00ffcc;
-            transition: box-shadow 0.3s ease, border 0.3s ease;
-        }
-
-        #scroll-notification {
-            position: absolute;
-            top: env(safe-area-inset-top, 12px);
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(26, 26, 26, 0.95);
-            color: #00ffcc;
-            padding: 6px 16px;
-            border-radius: 12px;
-            font-size: 0.9rem;
-            font-weight: bold;
-            z-index: 2000;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            border: 1px solid #333;
-        }
-
-        #scroll-notification.show {
-            opacity: 1;
-        }
     </style>
 </head>
 <body>
 
     <div class="app-container">
         <div class="card-counter-overlay" id="counterOverlay"></div>
-        <div id="scroll-notification"></div>
 
-        <div class="scene" id="sceneContainer">
+        <div class="scene">
             <div class="card" id="flashcard">
                 <div class="card-face card-front">
                     <div class="card-content-scroll" id="cardFront">
@@ -271,7 +232,7 @@
             </div>
         </div>
 
-        <div class="controls-container" id="controlsContainer">
+        <div class="controls-container">
             <div class="controls">
                 <button id="btnPrev" disabled>Prev</button>
                 <button id="btnFlip" disabled>Flip Card</button>
@@ -286,22 +247,10 @@
     </div>
 
     <script>
-        // --- Core Variables ---
         let flashcards = [];
         let currentIndex = 0;
         let overlayTimeout;
 
-        // --- Interaction Matrix Variables ---
-        let isTouchScrollMode = false;
-        let globalZoomScale = 1;
-        let globalPanX = 0;
-        let globalPanY = 0;
-        let lastActionTime = 0;
-        let lastTapTime = 0;
-        let touchStartX = 0;
-        let touchStartY = 0;
-
-        // --- DOM Elements ---
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
@@ -311,9 +260,6 @@
         const fileUpload = document.getElementById('fileUpload');
         const counterOverlay = document.getElementById('counterOverlay');
         const uploadLabel = document.getElementById('uploadLabel');
-        const scrollNotification = document.getElementById('scroll-notification');
-        const controlsContainer = document.getElementById('controlsContainer');
-        const sceneContainer = document.getElementById('sceneContainer');
 
         function arrayBufferToBase64(buffer) {
             let binary = '';
@@ -323,6 +269,7 @@
             return window.btoa(binary);
         }
 
+        // Downscale large 3.5MB+ cell images to lightweight 1200px max web-optimized layouts
         function compressImageURI(base64Str) {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -352,21 +299,19 @@
                     canvas.height = height;
                     
                     ctx.drawImage(img, 0, 0, width, height);
+                    // Export as JPEG at 75% quality factor
                     const compressedURI = canvas.toDataURL('image/jpeg', 0.75);
                     resolve(compressedURI);
                 };
                 img.onerror = () => {
-                    resolve(base64Str);
+                    resolve(base64Str); // Fallback to raw if dynamic scale fails
                 };
             });
         }
 
-        // Standard button interactions
         btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) card.classList.toggle('is-flipped');
         });
-        btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
-        btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
         function showCounter() {
             counterOverlay.innerText = `${currentIndex + 1} / ${flashcards.length}`;
@@ -403,49 +348,56 @@
         }
 
         function processContent(contentData) {
-            if (!contentData) return "";
-            let htmlOutput = "";
+    if (!contentData) return "";
+    let htmlOutput = "";
 
-            if (contentData.text) {
-                let text = contentData.text.trim();
-                
-                // Drive
-                if (text.includes("drive.google.com")) {
-                    let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
-                    if (fileId) {
-                        htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
-                    }
-                } 
-                // YouTube
-                else if (text.includes("youtube.com") || text.includes("youtu.be")) {
-                    let videoId = "";
-                    if (text.includes("youtu.be/")) videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
-                    else if (text.includes("embed/")) videoId = text.split("embed/")[1].split(/[?#]/)[0];
-                    else if (text.includes("shorts/")) videoId = text.split("shorts/")[1].split(/[?#]/)[0];
-                    else if (text.includes("v=")) videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
-                    
-                    if (videoId) {
-                        htmlOutput += `<iframe src="https://www.youtube.com/embed/${videoId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
-                    } else {
-                        htmlOutput += `<div class="text-centered-helper">${text}</div>`;
-                    }
-                } 
-                // Image Links
-                else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-                    htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
-                } 
-                // Plain Text
-                else {
-                    htmlOutput += `<div class="text-centered-helper">${text}</div>`;
-                }
+    if (contentData.text) {
+        let text = contentData.text.trim();
+        
+        // 1. Check for Google Drive Links
+        if (text.includes("drive.google.com")) {
+            let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
+            if (fileId) {
+                // Uses the canonical preview player layout for cross-platform support
+                htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
             }
-
-            if (contentData.image) {
-                htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+        } 
+        // 2. Check for YouTube Links (Standard, Shortened, and Shorts formats)
+        else if (text.includes("youtube.com") || text.includes("youtu.be")) {
+            let videoId = "";
+            if (text.includes("youtu.be/")) {
+                videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
+            } else if (text.includes("embed/")) {
+                videoId = text.split("embed/")[1].split(/[?#]/)[0];
+            } else if (text.includes("shorts/")) {
+                videoId = text.split("shorts/")[1].split(/[?#]/)[0];
+            } else if (text.includes("v=")) {
+                videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
             }
-
-            return htmlOutput || `<div class="text-centered-helper"></div>`;
+            
+            if (videoId) {
+                htmlOutput += `<iframe src="https://www.youtube.com/embed/${videoId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+            } else {
+                // Fallback to text if parsing fails
+                htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+            }
+        } 
+        // 3. Check for Direct Images
+        else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+            htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
+        } 
+        // 4. Fallback to Plain Text
+        else {
+            htmlOutput += `<div class="text-centered-helper">${text}</div>`;
         }
+    }
+
+    if (contentData.image) {
+        htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+    }
+
+    return htmlOutput || `<div class="text-centered-helper"></div>`;
+}
 
         function enableImagePanZoom(img) {
             let scale = 1;
@@ -468,6 +420,7 @@
 
             img.addEventListener('touchstart', (e) => {
                 e.stopPropagation(); 
+                
                 const currentTime = new Date().getTime();
                 const tapLength = currentTime - lastTap;
                 
@@ -566,51 +519,9 @@
             }, { passive: false });
         }
 
-        // --- INTERACTION HELPERS ---
-        function throttleAction(action, delay = 350) {
-            const now = Date.now();
-            if (now - lastActionTime > delay) {
-                lastActionTime = now;
-                action();
-            }
-        }
-
-        function resetZoomState() {
-            globalZoomScale = 1;
-            globalPanX = 0;
-            globalPanY = 0;
-            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-            const activeImg = activeFace.querySelector('img');
-            if (activeImg) {
-                activeImg.style.transition = 'transform 0.3s ease-out';
-                activeImg.style.transform = `translate(0px, 0px) scale(1)`;
-            }
-        }
-
-        function toggleScrollMode() {
-            isTouchScrollMode = !isTouchScrollMode;
-            const activeFace = card.classList.contains('is-flipped') ? card.querySelector('.card-back') : card.querySelector('.card-front');
-            
-            if (isTouchScrollMode) {
-                activeFace.classList.add('scrolling-active');
-                showNotification("Scrolling ON");
-            } else {
-                card.querySelectorAll('.card-face').forEach(f => f.classList.remove('scrolling-active'));
-                showNotification("Scrolling OFF");
-            }
-        }
-
-        function showNotification(text) {
-            scrollNotification.innerText = text;
-            scrollNotification.classList.add('show');
-            setTimeout(() => { scrollNotification.classList.remove('show'); }, 1000);
-        }
-
         function updateUI() {
             if (flashcards.length === 0) return;
             card.classList.remove('is-flipped');
-            isTouchScrollMode = false; // Reset scroll mode on new card
-            card.querySelectorAll('.card-face').forEach(f => f.classList.remove('scrolling-active'));
 
             setTimeout(() => {
                 const currentCard = flashcards[currentIndex];
@@ -635,113 +546,40 @@
             }, 150);
         }
 
-        // --- KEYBOARD INTERACTION MATRIX ---
+        btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
+        btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
+
         window.addEventListener('keydown', (e) => {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
-
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-            const activeImg = activeFace.querySelector('img');
-
-            // 1. Image Zoom & Pan (Ctrl + Actions)
-            if (e.ctrlKey || e.metaKey) {
-                if (e.key === '=' || e.key === '+' || e.key === '-') {
-                    e.preventDefault(); 
-                    if (!activeImg) return;
-                    globalZoomScale += e.key === '-' ? -0.5 : 0.5;
-                    globalZoomScale = Math.max(1, Math.min(globalZoomScale, 5)); 
-                    if (globalZoomScale === 1) { globalPanX = 0; globalPanY = 0; }
-                    activeImg.style.transition = 'transform 0.2s ease';
-                    activeImg.style.transform = `translate(${globalPanX}px, ${globalPanY}px) scale(${globalZoomScale})`;
-                    return;
-                }
-                
-                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-                    if (globalZoomScale > 1 && activeImg) {
-                        e.preventDefault();
-                        const panStep = 40;
-                        if (e.key === 'ArrowUp') globalPanY -= panStep;
-                        if (e.key === 'ArrowDown') globalPanY += panStep;
-                        if (e.key === 'ArrowLeft') globalPanX -= panStep;
-                        if (e.key === 'ArrowRight') globalPanX += panStep;
-                        activeImg.style.transition = 'none';
-                        activeImg.style.transform = `translate(${globalPanX}px, ${globalPanY}px) scale(${globalZoomScale})`;
-                        return;
-                    }
-                }
-            }
-
-            // 2. Text Scrolling (Alt/Cmd + Up/Down)
-            if (e.altKey || e.metaKey) {
-                if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollBy({ top: -80, behavior: 'smooth' }); return; }
-                if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollBy({ top: 80, behavior: 'smooth' }); return; }
-            }
-
-            // 3. Navigation Shortcuts (Bare Arrows)
-            if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-                if (e.key === 'ArrowDown') { e.preventDefault(); throttleAction(() => { resetZoomState(); if(!btnNext.disabled) btnNext.click(); }); }
-                if (e.key === 'ArrowUp') { e.preventDefault(); throttleAction(() => { resetZoomState(); if(!btnPrev.disabled) btnPrev.click(); }); }
-                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); throttleAction(() => { resetZoomState(); if(!btnFlip.disabled) btnFlip.click(); }); }
-            }
-        }, { passive: false });
-
-        // --- TOUCH INTERACTION MATRIX ---
-        card.addEventListener('touchstart', (e) => {
-            if (e.target.closest('iframe')) return;
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        }, { passive: true });
-
-        card.addEventListener('touchmove', (e) => {
-            if (e.target.closest('iframe')) return;
-            if (!isTouchScrollMode && globalZoomScale === 1) {
-                e.preventDefault(); 
-            }
-        }, { passive: false });
-
-        card.addEventListener('touchend', (e) => {
-            if (e.target.closest('iframe')) return;
-
-            const touchEndX = e.changedTouches[0].clientX;
-            const touchEndY = e.changedTouches[0].clientY;
-            const dx = touchEndX - touchStartX;
-            const dy = touchEndY - touchStartY;
-            const absDx = Math.abs(dx);
-            const absDy = Math.abs(dy);
-            const timeNow = Date.now();
-
-            // Tap & Double Tap Logic
-            if (absDx < 10 && absDy < 10) {
-                if (timeNow - lastTapTime < 300) {
-                    toggleScrollMode();
-                    lastTapTime = 0; 
-                    return;
-                } else {
-                    lastTapTime = timeNow;
-                    setTimeout(() => {
-                        if (lastTapTime === timeNow && !e.target.closest('button, a, input')) {
-                            throttleAction(() => { resetZoomState(); btnFlip.click(); });
-                        }
-                    }, 300);
-                    return;
-                }
-            }
-
-            // Swipe Navigation Logic
-            if (!isTouchScrollMode && globalZoomScale === 1 && Math.max(absDx, absDy) > 40) {
-                if (absDy > absDx) {
-                    if (dy < 0) throttleAction(() => { resetZoomState(); if(!btnNext.disabled) btnNext.click(); }); 
-                    else throttleAction(() => { resetZoomState(); if(!btnPrev.disabled) btnPrev.click(); }); 
-                } else {
-                    throttleAction(() => { resetZoomState(); if(!btnFlip.disabled) btnFlip.click(); }); 
-                }
+            switch(e.key) {
+                case 'ArrowLeft': if (!btnPrev.disabled) btnPrev.click(); break;
+                case 'ArrowRight': if (!btnNext.disabled) btnNext.click(); break;
+                case 'Enter': if (!btnFlip.disabled) btnFlip.click(); break;
+                case 'ArrowUp': activeFace.scrollBy({ top: -60, behavior: 'smooth' }); e.preventDefault(); break;
+                case 'ArrowDown': activeFace.scrollBy({ top: 60, behavior: 'smooth' }); e.preventDefault(); break;
             }
         });
 
-        // --- EXCEL IMPORT LOGIC ---
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
+            }, { passive: true });
+        }
+
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
+
         fileUpload.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
+            // Trigger non-blocking visual feedback states immediately
             uploadLabel.innerText = "Reading Excel data...";
             uploadLabel.style.pointerEvents = "none";
             cardFront.innerHTML = '<div class="text-centered-helper">Reading Excel data...</div>';
@@ -773,6 +611,7 @@
 
                     for (const image of images) {
                         processedCount++;
+                        // Dynamically update UI text so users know processing is moving
                         uploadLabel.innerText = `Optimizing image ${processedCount} of ${images.length}...`;
                         cardFront.innerHTML = `<div class="text-centered-helper">Processing image ${processedCount} / ${images.length}...</div>`;
 
@@ -784,6 +623,7 @@
                             const rawBase64 = arrayBufferToBase64(imgData.buffer);
                             const rawUri = `data:image/${imgData.extension};base64,${rawBase64}`;
                             
+                            // Await the asynchronous compression task to prevent blocking the UI
                             const optimizedUri = await compressImageURI(rawUri);
                             
                             if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
@@ -807,11 +647,6 @@
 
                     if (flashcards.length > 0) {
                         uploadLabel.style.display = 'none';
-                        
-                        // --- FULL SCREEN TRIGGER ---
-                        controlsContainer.classList.add('hide-controls');
-                        sceneContainer.classList.add('full-screen');
-                        
                         currentIndex = 0;
                         updateUI();
                     } else {
