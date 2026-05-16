@@ -150,6 +150,8 @@
         .card-content-scroll iframe {
             width: 100%; height: 100%;
             border: none; background: transparent;
+            position: relative;
+            z-index: 10;
         }
 
         .card-content-scroll img {
@@ -251,6 +253,12 @@
         let currentIndex = 0;
         let overlayTimeout;
 
+        // Scale & translation metrics tracking engine
+        let currentScale = 1;
+        let currentTranslateX = 0;
+        let currentTranslateY = 0;
+        let ytPlayerStates = {};
+
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
@@ -269,7 +277,6 @@
             return window.btoa(binary);
         }
 
-        // Downscale large 3.5MB+ cell images to lightweight 1200px max web-optimized layouts
         function compressImageURI(base64Str) {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -299,18 +306,20 @@
                     canvas.height = height;
                     
                     ctx.drawImage(img, 0, 0, width, height);
-                    // Export as JPEG at 75% quality factor
                     const compressedURI = canvas.toDataURL('image/jpeg', 0.75);
                     resolve(compressedURI);
                 };
                 img.onerror = () => {
-                    resolve(base64Str); // Fallback to raw if dynamic scale fails
+                    resolve(base64Str);
                 };
             });
         }
 
         btnFlip.addEventListener('click', () => {
-            if (flashcards.length > 0) card.classList.toggle('is-flipped');
+            if (flashcards.length > 0) {
+                card.classList.toggle('is-flipped');
+                resetTransformProperties();
+            }
         });
 
         function showCounter() {
@@ -348,85 +357,87 @@
         }
 
         function processContent(contentData) {
-    if (!contentData) return "";
-    let htmlOutput = "";
+            if (!contentData) return "";
+            let htmlOutput = "";
 
-    if (contentData.text) {
-        let text = contentData.text.trim();
-        
-        // 1. Check for Google Drive Links
-        if (text.includes("drive.google.com")) {
-            let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
-            if (fileId) {
-                // Uses the canonical preview player layout for cross-platform support
-                htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
+            if (contentData.text) {
+                let text = contentData.text.trim();
+                
+                if (text.includes("drive.google.com")) {
+                    let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
+                    if (fileId) {
+                        // Added playsinline=1 config to prevent mobile browsers (like Koder) from auto-fullscreening Drive clips
+                        htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview?playsinline=1" allowfullscreen playsinline webkit-playsinline></iframe>`;
+                    }
+                } 
+                else if (text.includes("youtube.com") || text.includes("youtu.be")) {
+                    let videoId = "";
+                    if (text.includes("youtu.be/")) {
+                        videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
+                    } else if (text.includes("embed/")) {
+                        videoId = text.split("embed/")[1].split(/[?#]/)[0];
+                    } else if (text.includes("shorts/")) {
+                        videoId = text.split("shorts/")[1].split(/[?#]/)[0];
+                    } else if (text.includes("v=")) {
+                        videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
+                    }
+                    
+                    if (videoId) {
+                        htmlOutput += `<iframe id="yt-${videoId}" src="https://www.youtube.com/embed/${videoId}?enablejsapi=1&playsinline=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen playsinline webkit-playsinline></iframe>`;
+                    } else {
+                        htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+                    }
+                } 
+                else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+                    htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
+                } 
+                else {
+                    htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+                }
             }
-        } 
-        // 2. Check for YouTube Links (Standard, Shortened, and Shorts formats)
-        else if (text.includes("youtube.com") || text.includes("youtu.be")) {
-            let videoId = "";
-            if (text.includes("youtu.be/")) {
-                videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
-            } else if (text.includes("embed/")) {
-                videoId = text.split("embed/")[1].split(/[?#]/)[0];
-            } else if (text.includes("shorts/")) {
-                videoId = text.split("shorts/")[1].split(/[?#]/)[0];
-            } else if (text.includes("v=")) {
-                videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
+
+            if (contentData.image) {
+                htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
             }
-            
-            if (videoId) {
-                htmlOutput += `<iframe src="https://www.youtube.com/embed/${videoId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
-            } else {
-                // Fallback to text if parsing fails
-                htmlOutput += `<div class="text-centered-helper">${text}</div>`;
-            }
-        } 
-        // 3. Check for Direct Images
-        else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-            htmlOutput += `<img src="${text}" alt="Flashcard Image">`;
-        } 
-        // 4. Fallback to Plain Text
-        else {
-            htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+
+            return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
-    }
 
-    if (contentData.image) {
-        htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
-    }
-
-    return htmlOutput || `<div class="text-centered-helper"></div>`;
-}
+        function resetTransformProperties() {
+            currentScale = 1;
+            currentTranslateX = 0;
+            currentTranslateY = 0;
+            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+            const interactiveTarget = activeFace.querySelector('img, iframe');
+            if(interactiveTarget) {
+                interactiveTarget.style.transform = `translate(0px, 0px) scale(1)`;
+            }
+        }
 
         function enableImagePanZoom(img) {
-            let scale = 1;
-            let startDistance = 0, startScale = 1;
-            let isPanning = false;
-            let startX = 0, startY = 0;
-            let translateX = 0, translateY = 0;
-            let lastTranslateX = 0, lastTranslateY = 0;
-
             img.style.transformOrigin = 'center';
             img.style.transition = 'transform 0.2s ease-out';
             img.style.touchAction = 'none';
 
             const updateTransform = () => {
-                if (scale < 1) { scale = 1; translateX = 0; translateY = 0; }
-                img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+                if (currentScale < 1) { currentScale = 1; currentTranslateX = 0; currentTranslateY = 0; }
+                img.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
             };
 
             let lastTap = 0;
+            let isPanning = false;
+            let startX = 0, startY = 0;
+            let lastTranslateX = 0, lastTranslateY = 0;
+            let startScale = 1, startDistance = 0;
 
             img.addEventListener('touchstart', (e) => {
                 e.stopPropagation(); 
-                
                 const currentTime = new Date().getTime();
                 const tapLength = currentTime - lastTap;
                 
                 if (tapLength < 300 && tapLength > 0 && e.touches.length === 1) {
-                    scale = scale > 1 ? 1 : 2.5; 
-                    translateX = 0; translateY = 0;
+                    currentScale = currentScale > 1 ? 1 : 2.5; 
+                    currentTranslateX = 0; currentTranslateY = 0;
                     img.style.transition = 'transform 0.3s ease-in-out';
                     updateTransform();
                     e.preventDefault();
@@ -439,15 +450,15 @@
                     const dx = e.touches[0].pageX - e.touches[1].pageX;
                     const dy = e.touches[0].pageY - e.touches[1].pageY;
                     startDistance = Math.hypot(dx, dy);
-                    startScale = scale;
+                    startScale = currentScale;
                     img.style.transition = 'none'; 
-                } else if (e.touches.length === 1 && scale > 1) {
+                } else if (e.touches.length === 1 && currentScale > 1) {
                     e.preventDefault();
                     isPanning = true;
                     startX = e.touches[0].pageX;
                     startY = e.touches[0].pageY;
-                    lastTranslateX = translateX;
-                    lastTranslateY = translateY;
+                    lastTranslateX = currentTranslateX;
+                    lastTranslateY = currentTranslateY;
                     img.style.transition = 'none';
                 }
             }, { passive: false });
@@ -458,13 +469,13 @@
                     e.preventDefault();
                     const dx = e.touches[0].pageX - e.touches[1].pageX;
                     const dy = e.touches[0].pageY - e.touches[1].pageY;
-                    scale = startScale * (Math.hypot(dx, dy) / startDistance);
-                    if (scale > 5) scale = 5;
+                    currentScale = startScale * (Math.hypot(dx, dy) / startDistance);
+                    if (currentScale > 5) currentScale = 5;
                     updateTransform();
-                } else if (e.touches.length === 1 && isPanning && scale > 1) {
+                } else if (e.touches.length === 1 && isPanning && currentScale > 1) {
                     e.preventDefault();
-                    translateX = lastTranslateX + (e.touches[0].pageX - startX);
-                    translateY = lastTranslateY + (e.touches[0].pageY - startY);
+                    currentTranslateX = lastTranslateX + (e.touches[0].pageX - startX);
+                    currentTranslateY = lastTranslateY + (e.touches[0].pageY - startY);
                     updateTransform();
                 }
             }, { passive: false });
@@ -474,25 +485,25 @@
                 if (e.touches.length < 2) img.style.transition = 'transform 0.2s ease-out';
                 if (e.touches.length === 0) {
                     isPanning = false;
-                    if (scale <= 1) { scale = 1; translateX = 0; translateY = 0; updateTransform(); }
+                    if (currentScale <= 1) { currentScale = 1; currentTranslateX = 0; currentTranslateY = 0; updateTransform(); }
                 }
             }, { passive: false });
 
             img.addEventListener('mousedown', (e) => {
-                if (scale > 1) {
+                if (currentScale > 1) {
                     isPanning = true;
                     startX = e.pageX; startY = e.pageY;
-                    lastTranslateX = translateX; lastTranslateY = translateY;
+                    lastTranslateX = currentTranslateX; lastTranslateY = currentTranslateY;
                     img.style.transition = 'none';
                     e.preventDefault(); e.stopPropagation();
                 }
             });
 
             img.addEventListener('mousemove', (e) => {
-                if (isPanning && scale > 1) {
-                    translateX = lastTranslateX + (e.pageX - startX);
-                    translateY = lastTranslateY + (e.pageY - startY);
-                    updateTransform();
+                if (isPanning && currentScale > 1) {
+                    currentTranslateX = lastTranslateX + (e.pageX - startX);
+                    currentTranslateY = lastTranslateY + (e.pageY - startY);
+                    img.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
                     e.stopPropagation();
                 }
             });
@@ -502,18 +513,18 @@
             img.addEventListener('mouseleave', stopMousePan);
 
             img.addEventListener('dblclick', (e) => {
-                scale = scale > 1 ? 1 : 2.5;
-                translateX = 0; translateY = 0;
+                currentScale = currentScale > 1 ? 1 : 2.5;
+                currentTranslateX = 0; currentTranslateY = 0;
                 img.style.transition = 'transform 0.3s ease-in-out';
                 updateTransform();
                 e.preventDefault(); e.stopPropagation();
             });
 
             img.addEventListener('wheel', (e) => {
-                if (scale > 1) { e.preventDefault(); e.stopPropagation(); }
-                scale += e.deltaY < 0 ? 0.1 : -0.1;
-                if (scale > 5) scale = 5;
-                if (scale < 1) { scale = 1; translateX = 0; translateY = 0; }
+                if (currentScale > 1) { e.preventDefault(); e.stopPropagation(); }
+                currentScale += e.deltaY < 0 ? 0.1 : -0.1;
+                if (currentScale > 5) currentScale = 5;
+                if (currentScale < 1) { currentScale = 1; currentTranslateX = 0; currentTranslateY = 0; }
                 img.style.transition = 'transform 0.1s ease-out';
                 updateTransform();
             }, { passive: false });
@@ -522,6 +533,7 @@
         function updateUI() {
             if (flashcards.length === 0) return;
             card.classList.remove('is-flipped');
+            resetTransformProperties();
 
             setTimeout(() => {
                 const currentCard = flashcards[currentIndex];
@@ -534,6 +546,9 @@
 
                 cardFront.querySelectorAll('img').forEach(enableImagePanZoom);
                 cardBack.querySelectorAll('img').forEach(enableImagePanZoom);
+
+                cardFront.querySelectorAll('iframe').forEach(el => el.style.transition = 'transform 0.2s ease-out');
+                cardBack.querySelectorAll('iframe').forEach(el => el.style.transition = 'transform 0.2s ease-out');
 
                 cardFront.scrollTop = 0;
                 cardBack.scrollTop = 0;
@@ -549,15 +564,108 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
+        // Generalized Keyboard Shortcuts System Engine
         window.addEventListener('keydown', (e) => {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+            
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-            switch(e.key) {
-                case 'ArrowLeft': if (!btnPrev.disabled) btnPrev.click(); break;
-                case 'ArrowRight': if (!btnNext.disabled) btnNext.click(); break;
-                case 'Enter': if (!btnFlip.disabled) btnFlip.click(); break;
-                case 'ArrowUp': activeFace.scrollBy({ top: -60, behavior: 'smooth' }); e.preventDefault(); break;
-                case 'ArrowDown': activeFace.scrollBy({ top: 60, behavior: 'smooth' }); e.preventDefault(); break;
+            const targetElement = activeFace.querySelector('img, iframe');
+            const nativeVideo = activeFace.querySelector('video');
+            const targetIframe = activeFace.querySelector('iframe');
+
+            // 1. Universal Escape Key Escape-Route Bind
+            if (e.key === 'Escape') {
+                if (card.classList.contains('is-flipped')) {
+                    card.classList.remove('is-flipped');
+                }
+                resetTransformProperties();
+                e.preventDefault();
+                return;
+            }
+
+            // 2. Card Carousel Stepping Blocks
+            if (e.key === 'ArrowLeft' && !e.shiftKey) { 
+                if (!btnPrev.disabled) btnPrev.click(); 
+                return;
+            }
+            if (e.key === 'ArrowRight' && !e.shiftKey) { 
+                if (!btnNext.disabled) btnNext.click(); 
+                return;
+            }
+            if (e.key === 'Enter') { 
+                if (!btnFlip.disabled) btnFlip.click(); 
+                return;
+            }
+
+            // 3. Zoom Transform Matrices Controllers (+ / - keys)
+            if (e.key === '=' || e.key === '+') {
+                if (targetElement) {
+                    currentScale = Math.min(currentScale + 0.25, 6);
+                    targetElement.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '-' || e.key === '_') {
+                if (targetElement) {
+                    currentScale = Math.max(currentScale - 0.25, 1);
+                    if (currentScale === 1) { currentTranslateX = 0; currentTranslateY = 0; }
+                    targetElement.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+                }
+                e.preventDefault();
+                return;
+            }
+
+            // 4. Hotkey Translation Mechanics (W, A, S, D / Shift + Arrow Keys)
+            const isPanUp = (e.key.toLowerCase() === 'w') || (e.key === 'ArrowUp' && e.shiftKey);
+            const isPanDown = (e.key.toLowerCase() === 's') || (e.key === 'ArrowDown' && e.shiftKey);
+            const isPanLeft = (e.key.toLowerCase() === 'a') || (e.key === 'ArrowLeft' && e.shiftKey);
+            const isPanRight = (e.key.toLowerCase() === 'd') || (e.key === 'ArrowRight' && e.shiftKey);
+
+            if ((isPanUp || isPanDown || isPanLeft || isPanRight)) {
+                if (targetElement && currentScale > 1) {
+                    const panStep = 40; 
+                    if (isPanUp) currentTranslateY += panStep;
+                    if (isPanDown) currentTranslateY -= panStep;
+                    if (isPanLeft) currentTranslateX += panStep;
+                    if (isPanRight) currentTranslateX -= panStep;
+                    
+                    targetElement.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+                    e.preventDefault();
+                } else if (!e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                    const scrollStep = e.key === 'ArrowUp' ? -60 : 60;
+                    activeFace.scrollBy({ top: scrollStep, behavior: 'smooth' });
+                    e.preventDefault();
+                }
+                return;
+            }
+
+            // 5. Native Video & Iframe Streaming Messaging Pipes (Space, J, L keys)
+            if (nativeVideo) {
+                if (e.key === ' ') {
+                    if (nativeVideo.paused) nativeVideo.play();
+                    else nativeVideo.pause();
+                    e.preventDefault();
+                }
+                if (e.key.toLowerCase() === 'j') { nativeVideo.currentTime = Math.max(0, nativeVideo.currentTime - 10); }
+                if (e.key.toLowerCase() === 'l') { nativeVideo.currentTime = Math.min(nativeVideo.duration || 0, nativeVideo.currentTime + 10); }
+            } 
+            else if (targetIframe && targetIframe.src.includes('youtube.com')) {
+                const iframeId = targetIframe.id;
+                if (!ytPlayerStates[iframeId]) { ytPlayerStates[iframeId] = { playing: false }; }
+
+                if (e.key === ' ') {
+                    const command = ytPlayerStates[iframeId].playing ? 'pauseVideo' : 'playVideo';
+                    targetIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: command, args: [] }), '*');
+                    ytPlayerStates[iframeId].playing = !ytPlayerStates[iframeId].playing;
+                    e.preventDefault();
+                }
+                if (e.key.toLowerCase() === 'j') {
+                    targetIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: ['-10', true] }), '*');
+                }
+                if (e.key.toLowerCase() === 'l') {
+                    targetIframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: ['10', true] }), '*');
+                }
             }
         });
 
@@ -579,7 +687,6 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            // Trigger non-blocking visual feedback states immediately
             uploadLabel.innerText = "Reading Excel data...";
             uploadLabel.style.pointerEvents = "none";
             cardFront.innerHTML = '<div class="text-centered-helper">Reading Excel data...</div>';
@@ -611,7 +718,6 @@
 
                     for (const image of images) {
                         processedCount++;
-                        // Dynamically update UI text so users know processing is moving
                         uploadLabel.innerText = `Optimizing image ${processedCount} of ${images.length}...`;
                         cardFront.innerHTML = `<div class="text-centered-helper">Processing image ${processedCount} / ${images.length}...</div>`;
 
@@ -623,7 +729,6 @@
                             const rawBase64 = arrayBufferToBase64(imgData.buffer);
                             const rawUri = `data:image/${imgData.extension};base64,${rawBase64}`;
                             
-                            // Await the asynchronous compression task to prevent blocking the UI
                             const optimizedUri = await compressImageURI(rawUri);
                             
                             if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
