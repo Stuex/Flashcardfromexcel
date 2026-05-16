@@ -358,7 +358,8 @@
         if (text.includes("drive.google.com")) {
             let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
             if (fileId) {
-                htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                // Fixed engine layout configuration to trigger iOS native video player skin
+                htmlOutput += `<iframe src="https://docs.google.com/get_video_info?docid=${fileId}&rt=h" allowfullscreen></iframe>`;
             }
         } 
         // 2. Check for YouTube Links (Standard, Shortened, and Shorts formats)
