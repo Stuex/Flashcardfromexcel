@@ -147,11 +147,29 @@
             background-color: #0a0a0a;
         }
 
+        /* Video containment layout to cleanly overlay focus management mechanics */
+        .video-container-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
         .card-content-scroll iframe {
             width: 100%; height: 100%;
             border: none; background: transparent;
             transition: transform 0.1s ease-out;
             transform-origin: center center;
+        }
+
+        /* Transparent click receiver shield ensures keystrokes stay linked to parent page */
+        .video-focus-shield {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: calc(100% - 45px); /* Leaves native timeline interactive at the very bottom */
+            background: transparent;
+            z-index: 5;
+            cursor: pointer;
         }
 
         .card-content-scroll img {
@@ -255,11 +273,9 @@
         let currentIndex = 0;
         let overlayTimeout;
 
-        // Global properties tracking manual transforms for programmatic/keyboard scaling & panning
         let currentScale = 1;
         let currentPanX = 0;
         let currentPanY = 0;
-        let isYTEmbedPlaying = false; 
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -420,7 +436,13 @@
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        htmlOutput += `<iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                        // Wraps the iframe in a safe click intercept shield to stop focus trapping
+                        htmlOutput += `
+                            <div class="video-container-wrapper">
+                                <div class="video-focus-shield" onclick="handleShieldVideoToggle(this)"></div>
+                                <iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                            </div>
+                        `;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -439,6 +461,17 @@
 
             return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
+
+        // Programmatic click toggle that automatically leaves focus in your parent window layer
+        window.handleShieldVideoToggle = function(shieldElement) {
+            const player = shieldElement.parentElement.querySelector('#ytPlayer');
+            if (player) {
+                player.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
+                // Force focus tracking directly back to the top-level parent body container
+                window.focus();
+                document.body.focus();
+            }
+        };
 
         function applyGlobalTransform(target) {
             if (!target) return;
@@ -603,7 +636,6 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
-        // Global tracking variable for the timeline loop watcher
         let ytLoopInterval = null;
 
         function startYoutubeLoopWatcher() {
@@ -620,7 +652,7 @@
             }, 500);
         }
 
-        // Handles Video auto-loops at endpoint limits
+        // Monitors clip duration and loop points automatically
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
@@ -649,8 +681,17 @@
             }
         });
 
+        // Focus Recovery Engine: If focus gets trapped inside an iframe, pull it back instantly
+        setInterval(() => {
+            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
+                document.activeElement.blur();
+                window.focus();
+                document.body.focus();
+            }
+        }, 300);
+
         // =========================================================
-        // UNIFIED KEYBOARD SHORTCUTS ENGINE
+        // UNIFIED KEYBOARD SHORTCUTS MATRIX
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
@@ -660,7 +701,7 @@
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. IMAGE ZOOM & PAN (Synchronized with pointers)
+            // 1. IMAGE ZOOM & PAN (Synchronized completely with variables)
             if (hasImage) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault();
@@ -698,14 +739,14 @@
                 }
             }
 
-            // 2. TEXT SCROLLING (Ctrl + Arrows)
+            // 2. TEXT SCROLLING (Ctrl + Vertical Arrows)
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 3. YOUTUBE VIDEO TIMELINE CONTROLS (Standard Horizontal Arrows)
+            // 3. YOUTUBE CONTROLS (Standard Horizontal Arrows)
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && ytPlayer) {
                     e.preventDefault();
@@ -724,14 +765,14 @@
                 if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
 
-                // ENTER KEY -> Explicit direct physical simulation link to the Flip Card Button element
+                // ENTER KEY -> Explicit direct click simulation on the Flip Card Button element
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     if (!btnFlip.disabled) btnFlip.click();
                     return;
                 }
 
-                // SPACEBAR -> Dedicated Play/Pause engine toggle rule for native video elements
+                // SPACEBAR -> Dedicated Play/Pause toggle rule for native video frames
                 if (e.code === 'Space' || e.key === ' ') {
                     if (ytPlayer) {
                         e.preventDefault();
@@ -748,7 +789,6 @@
             setTimeout(startYoutubeLoopWatcher, 100);
         };
 
-        // Single clean definition for touch engine alignments
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
