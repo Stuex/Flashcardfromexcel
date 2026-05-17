@@ -376,10 +376,9 @@
                     let startTime = "";
                     let endTime = "";
 
-                    // Helper function to convert raw time strings (like '90', '45s', '1m30s') into pure total seconds
                     function convertToSeconds(rawTime) {
                         if (!rawTime) return "";
-                        let cleaned = rawTime.replace(/s$/, ""); // Clear trailing 's' if present
+                        let cleaned = rawTime.replace(/s$/, "");
                         
                         if (cleaned.includes('m') || cleaned.includes('h')) {
                             let hours = cleaned.match(/(\d+)h/);
@@ -398,10 +397,9 @@
                             }
                             return totalSeconds;
                         }
-                        return cleaned; // Already plain seconds digits
+                        return cleaned;
                     }
 
-                    // 1. Extract the raw Video ID safely
                     if (text.includes("youtu.be/")) {
                         videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
                     } else if (text.includes("embed/")) {
@@ -412,27 +410,18 @@
                         videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
                     }
                     
-                    // 2. Extract start time parameter (can be 't=' or 'start=')
                     const startMatch = text.match(/[?&](?:t|start)=([^&]+)/);
-                    if (startMatch) {
-                        startTime = convertToSeconds(startMatch[1]);
-                    }
+                    if (startMatch) startTime = convertToSeconds(startMatch[1]);
 
-                    // 3. Extract stop/end time parameter (can be 'end=' or 'stop=')
                     const endMatch = text.match(/[?&](?:end|stop)=([^&]+)/);
-                    if (endMatch) {
-                        endTime = convertToSeconds(endMatch[1]);
-                    }
+                    if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
-                    // 4. Assemble the updated iframe source
                     if (videoId) {
-                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1`;
-                        if (startTime) {
-                            embedUrl += `&start=${startTime}`;
-                        }
-                        if (endTime) {
-                            embedUrl += `&end=${endTime}`;
-                        }
+                        // Crucial updates: Added origin and clear parameters to force API communication
+                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${window.location.origin}`;
+                        if (startTime) embedUrl += `&start=${startTime}`;
+                        if (endTime) embedUrl += `&end=${endTime}`;
+                        
                         htmlOutput += `<iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
