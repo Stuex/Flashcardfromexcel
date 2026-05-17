@@ -690,40 +690,46 @@
             }
         });
 
-        // Intercept YouTube player state changes to force loop/replay boundaries
+        // Actively catch video-ended states to override the standard Replay button behavior
         window.addEventListener('message', (e) => {
+            // Ensure the message is coming from YouTube
+            if (!e.origin.includes('youtube.com')) return;
+
             try {
-                const data = JSON.parse(e.data);
+                const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
                 
-                // Check if the message is a state change from our YouTube player
-                if (data.event === 'onStateChange') {
-                    const playerState = data.info;
-                    const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                    const ytPlayer = activeFace.querySelector('#ytPlayer');
+                // YouTube Embed API state events trigger under 'info' or direct message info updates
+                if (data.event === 'infoDelivery' || data.event === 'onStateChange') {
+                    const info = data.info || {};
                     
-                    // State 0 means the video has ended
-                    if (playerState === 0 && ytPlayer) {
-                        // Extract the original start time from the iframe src parameter
-                        const srcUrl = new URL(ytPlayer.src);
-                        const startTime = srcUrl.searchParams.get('start') || 0;
+                    // playerState === 0 means the video has hit its natural end point
+                    if (info.playerState === 0 || data.info === 0) {
+                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                        const ytPlayer = activeFace.querySelector('#ytPlayer');
                         
-                        // Force the player to seek back to the custom start time and stay paused or replay cleanly
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({
-                            event: 'command',
-                            func: 'seekTo',
-                            args: [parseInt(startTime), true]
-                        }), '*');
-                        
-                        // Optional: Automatically hit play again if you want it to loop automatically
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({
-                            event: 'command',
-                            func: 'playVideo',
-                            args: []
-                        }), '*');
+                        if (ytPlayer) {
+                            // Extract our custom target start time safely out of the iframe source link
+                            const urlParams = new URLSearchParams(ytPlayer.src.split('?')[1]);
+                            const startTime = urlParams.get('start') || 0;
+                            
+                            // 1. Force playback timeline head back to our configured starting timestamp
+                            ytPlayer.contentWindow.postMessage(JSON.stringify({
+                                event: 'command',
+                                func: 'seekTo',
+                                args: [parseInt(startTime), true]
+                            }), '*');
+
+                            // 2. Clear out the end screen screen blocks by giving a swift restart instruction
+                            ytPlayer.contentWindow.postMessage(JSON.stringify({
+                                event: 'command',
+                                func: 'playVideo',
+                                args: []
+                            }), '*');
+                        }
                     }
                 }
             } catch (err) {
-                // Ignore non-JSON messages from other third-party scripts/extensions
+                // Ignore background clutter messages
             }
         });
         function applyTouchScrolling(element) {
