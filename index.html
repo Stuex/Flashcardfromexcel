@@ -214,6 +214,7 @@
         button:active, .upload-btn:active { transform: scale(0.96); }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         input[type="file"] { display: none; }
+    <script src="https://www.youtube.com/iframe_api"></script>    
     </style>
 </head>
 <body>
@@ -373,22 +374,19 @@
                 } 
                 else if (text.includes("youtube.com") || text.includes("youtu.be")) {
                     let videoId = "";
-                    let startTime = "";
+                    let startTime = "0";
                     let endTime = "";
 
                     function convertToSeconds(rawTime) {
                         if (!rawTime) return "";
                         let cleaned = rawTime.replace(/s$/, "");
-                        
                         if (cleaned.includes('m') || cleaned.includes('h')) {
                             let hours = cleaned.match(/(\d+)h/);
                             let minutes = cleaned.match(/(\d+)m/);
                             let seconds = cleaned.match(/(\d+)s?$/);
-                            
                             let totalSeconds = 0;
                             if (hours) totalSeconds += parseInt(hours[1]) * 3600;
                             if (minutes) totalSeconds += parseInt(minutes[1]) * 60;
-                            
                             if (seconds && !cleaned.endsWith('m') && !cleaned.endsWith('h')) {
                                 totalSeconds += parseInt(seconds[1]);
                             } else {
@@ -417,12 +415,17 @@
                     if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
                     if (videoId) {
-                        // Crucial updates: Added origin and clear parameters to force API communication
-                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${window.location.origin}`;
-                        if (startTime) embedUrl += `&start=${startTime}`;
-                        if (endTime) embedUrl += `&end=${endTime}`;
-                        
-                        htmlOutput += `<iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                        // Store limits directly on data targets so the JavaScript controller reads them
+                        htmlOutput += `<div class="yt-container">
+                            <iframe class="yt-flash-player" 
+                                    data-video-id="${videoId}" 
+                                    data-start="${startTime}" 
+                                    data-end="${endTime || ''}" 
+                                    src="https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}${endTime ? '&end=' + endTime : ''}" 
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                    allowfullscreen>
+                            </iframe>
+                        </div>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -690,48 +693,65 @@
             }
         });
 
-        // Actively catch video-ended states to override the standard Replay button behavior
-        window.addEventListener('message', (e) => {
-            // Ensure the message is coming from YouTube
-            if (!e.origin.includes('youtube.com')) return;
+        // Keeps track of active iframe API controls
+        let activeYtPlayers = [];
 
-            try {
-                const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-                
-                // YouTube Embed API state events trigger under 'info' or direct message info updates
-                if (data.event === 'infoDelivery' || data.event === 'onStateChange') {
-                    const info = data.info || {};
-                    
-                    // playerState === 0 means the video has hit its natural end point
-                    if (info.playerState === 0 || data.info === 0) {
-                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                        const ytPlayer = activeFace.querySelector('#ytPlayer');
-                        
-                        if (ytPlayer) {
-                            // Extract our custom target start time safely out of the iframe source link
-                            const urlParams = new URLSearchParams(ytPlayer.src.split('?')[1]);
-                            const startTime = urlParams.get('start') || 0;
-                            
-                            // 1. Force playback timeline head back to our configured starting timestamp
-                            ytPlayer.contentWindow.postMessage(JSON.stringify({
-                                event: 'command',
-                                func: 'seekTo',
-                                args: [parseInt(startTime), true]
-                            }), '*');
+        // Global hook that intercepts changes to card content and hooks up YouTube handlers
+        function setupCardYoutubePlayers() {
+            // Clean up previous instances first
+            activeYtPlayers.forEach(p => { if(p && typeof p.destroy === 'function') p.destroy(); });
+            activeYtPlayers = [];
 
-                            // 2. Clear out the end screen screen blocks by giving a swift restart instruction
-                            ytPlayer.contentWindow.postMessage(JSON.stringify({
-                                event: 'command',
-                                func: 'playVideo',
-                                args: []
-                            }), '*');
+            if (typeof YT === 'undefined' || !YT.Player) {
+                // If API isn't fully ready yet, retry in 200ms
+                setTimeout(setupCardYoutubePlayers, 200);
+                return;
+            }
+
+            const frameElements = document.querySelectorAll('.yt-flash-player');
+            frameElements.forEach((frame) => {
+                const vId = frame.getAttribute('data-video-id');
+                const startSec = parseInt(frame.getAttribute('data-start') || 0);
+                const endSec = frame.getAttribute('data-end') ? parseInt(frame.getAttribute('data-end')) : null;
+
+                const player = new YT.Player(frame, {
+                    events: {
+                        'onStateChange': function(event) {
+                            // State 0 === ENDED
+                            if (event.data === YT.PlayerState.ENDED) {
+                                event.target.seekTo(startSec);
+                                event.target.playVideo();
+                            }
                         }
                     }
+                });
+                activeYtPlayers.push(player);
+            });
+        }
+
+        // Intercept your app's UI rendering process to bind the player listeners
+        const originalUpdateUI = updateUI;
+        updateUI = function() {
+            originalUpdateUI();
+            // Wait slightly for the browser to draw the new iframe, then attach controls
+            setTimeout(setupCardYoutubePlayers, 50);
+        };
+
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                if (currentScale === 1) {
+                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
                 }
-            } catch (err) {
-                // Ignore background clutter messages
-            }
-        });
+            }, { passive: true });
+        }
+
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
