@@ -213,8 +213,7 @@
 
         button:active, .upload-btn:active { transform: scale(0.96); }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
-        input[type="file"] { display: none; }
-    <script src="https://www.youtube.com/iframe_api"></script>    
+        input[type="file"] { display: none; }    
     </style>
 </head>
 <body>
@@ -374,19 +373,22 @@
                 } 
                 else if (text.includes("youtube.com") || text.includes("youtu.be")) {
                     let videoId = "";
-                    let startTime = "0";
+                    let startTime = "";
                     let endTime = "";
 
                     function convertToSeconds(rawTime) {
                         if (!rawTime) return "";
                         let cleaned = rawTime.replace(/s$/, "");
+                        
                         if (cleaned.includes('m') || cleaned.includes('h')) {
                             let hours = cleaned.match(/(\d+)h/);
                             let minutes = cleaned.match(/(\d+)m/);
                             let seconds = cleaned.match(/(\d+)s?$/);
+                            
                             let totalSeconds = 0;
                             if (hours) totalSeconds += parseInt(hours[1]) * 3600;
                             if (minutes) totalSeconds += parseInt(minutes[1]) * 60;
+                            
                             if (seconds && !cleaned.endsWith('m') && !cleaned.endsWith('h')) {
                                 totalSeconds += parseInt(seconds[1]);
                             } else {
@@ -415,17 +417,12 @@
                     if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
                     if (videoId) {
-                        // Store limits directly on data targets so the JavaScript controller reads them
-                        htmlOutput += `<div class="yt-container">
-                            <iframe class="yt-flash-player" 
-                                    data-video-id="${videoId}" 
-                                    data-start="${startTime}" 
-                                    data-end="${endTime || ''}" 
-                                    src="https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}${endTime ? '&end=' + endTime : ''}" 
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                    allowfullscreen>
-                            </iframe>
-                        </div>`;
+                        // Keep standard iframe design layout intact to protect CSS sizes
+                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1`;
+                        if (startTime) embedUrl += `&start=${startTime}`;
+                        if (endTime) embedUrl += `&end=${endTime}`;
+                        
+                        htmlOutput += `<iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -696,46 +693,66 @@
         // Keeps track of active iframe API controls
         let activeYtPlayers = [];
 
-        // Global hook that intercepts changes to card content and hooks up YouTube handlers
-        function setupCardYoutubePlayers() {
-            // Clean up previous instances first
-            activeYtPlayers.forEach(p => { if(p && typeof p.destroy === 'function') p.destroy(); });
-            activeYtPlayers = [];
-
-            if (typeof YT === 'undefined' || !YT.Player) {
-                // If API isn't fully ready yet, retry in 200ms
-                setTimeout(setupCardYoutubePlayers, 200);
-                return;
-            }
-
-            const frameElements = document.querySelectorAll('.yt-flash-player');
-            frameElements.forEach((frame) => {
-                const vId = frame.getAttribute('data-video-id');
-                const startSec = parseInt(frame.getAttribute('data-start') || 0);
-                const endSec = frame.getAttribute('data-end') ? parseInt(frame.getAttribute('data-end')) : null;
-
-                const player = new YT.Player(frame, {
-                    events: {
-                        'onStateChange': function(event) {
-                            // State 0 === ENDED
-                            if (event.data === YT.PlayerState.ENDED) {
-                                event.target.seekTo(startSec);
-                                event.target.playVideo();
+        // Intercept messages from the YouTube player to loop correctly without breaking layouts
+        window.addEventListener('message', (e) => {
+            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+                try {
+                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                    
+                    // Listen for the native onStateChange or infoDelivery event
+                    if (data && (data.event === 'onStateChange' || data.event === 'infoDelivery')) {
+                        const info = data.info || {};
+                        
+                        // Check if the video has hit state 0 (Ended)
+                        if (info.playerState === 0 || data.info === 0) {
+                            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                            const ytPlayer = activeFace.querySelector('#ytPlayer');
+                            
+                            if (ytPlayer) {
+                                // Extract the start time out of the native URL parameters
+                                const urlParts = ytPlayer.src.split('?');
+                                if (urlParts[1]) {
+                                    const urlParams = new URLSearchParams(urlParts[1]);
+                                    const startTime = urlParams.get('start') || 0;
+                                    
+                                    // Instantly force back to the target start duration timestamp
+                                    ytPlayer.contentWindow.postMessage(JSON.stringify({
+                                        event: 'command',
+                                        func: 'seekTo',
+                                        args: [parseInt(startTime), true]
+                                    }), '*');
+                                    
+                                    // Instantly fire the play action instruction 
+                                    ytPlayer.contentWindow.postMessage(JSON.stringify({
+                                        event: 'command',
+                                        func: 'playVideo',
+                                        args: []
+                                    }), '*');
+                                }
                             }
                         }
                     }
-                });
-                activeYtPlayers.push(player);
-            });
+                } catch (err) {
+                    // Fail silently to clear console clutter from other browser scripts
+                }
+            }
+        });
+
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                if (currentScale === 1) {
+                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
+                }
+            }, { passive: true });
         }
 
-        // Intercept your app's UI rendering process to bind the player listeners
-        const originalUpdateUI = updateUI;
-        updateUI = function() {
-            originalUpdateUI();
-            // Wait slightly for the browser to draw the new iframe, then attach controls
-            setTimeout(setupCardYoutubePlayers, 50);
-        };
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
 
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
