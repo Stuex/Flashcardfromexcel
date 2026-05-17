@@ -693,50 +693,50 @@
         // Keeps track of active iframe API controls
         let activeYtPlayers = [];
 
-        // Intercept messages from the YouTube player to loop correctly without breaking layouts
+        // Force the iframe to hard-reset to its original timestamps when the video finishes
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
                     const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
                     
-                    // Listen for the native onStateChange or infoDelivery event
+                    // Detect when YouTube drops into state 0 (Ended)
                     if (data && (data.event === 'onStateChange' || data.event === 'infoDelivery')) {
                         const info = data.info || {};
                         
-                        // Check if the video has hit state 0 (Ended)
                         if (info.playerState === 0 || data.info === 0) {
                             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
                             const ytPlayer = activeFace.querySelector('#ytPlayer');
                             
                             if (ytPlayer) {
-                                // Extract the start time out of the native URL parameters
-                                const urlParts = ytPlayer.src.split('?');
-                                if (urlParts[1]) {
-                                    const urlParams = new URLSearchParams(urlParts[1]);
-                                    const startTime = urlParams.get('start') || 0;
-                                    
-                                    // Instantly force back to the target start duration timestamp
-                                    ytPlayer.contentWindow.postMessage(JSON.stringify({
-                                        event: 'command',
-                                        func: 'seekTo',
-                                        args: [parseInt(startTime), true]
-                                    }), '*');
-                                    
-                                    // Instantly fire the play action instruction 
-                                    ytPlayer.contentWindow.postMessage(JSON.stringify({
-                                        event: 'command',
-                                        func: 'playVideo',
-                                        args: []
-                                    }), '*');
-                                }
+                                // Hard reset: Force the iframe to reload its exact source string.
+                                // This completely wipes the end screen and restarts the custom time frame.
+                                const originalSrc = ytPlayer.src;
+                                ytPlayer.src = '';
+                                ytPlayer.src = originalSrc;
                             }
                         }
                     }
                 } catch (err) {
-                    // Fail silently to clear console clutter from other browser scripts
+                    // Fail silently for non-JSON background clutter
                 }
             }
         });
+
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                if (currentScale === 1) {
+                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
+                }
+            }, { passive: true });
+        }
+
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
 
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
