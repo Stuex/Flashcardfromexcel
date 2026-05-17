@@ -147,7 +147,7 @@
             background-color: #0a0a0a;
         }
 
-        /* Video containment layout to cleanly overlay focus management mechanics */
+        /* Responsive structural container wrapping video playback frames */
         .video-container-wrapper {
             position: relative;
             width: 100%;
@@ -162,11 +162,11 @@
             transform-origin: center center;
         }
 
-        /* Transparent click receiver shield ensures keystrokes stay linked to parent page */
+        /* Focus Recovery Layer handles touch gestures cleanly without hijacking iframe interactions */
         .video-focus-shield {
             position: absolute;
             top: 0; left: 0;
-            width: 100%; height: calc(100% - 45px); /* Leaves native timeline interactive at the very bottom */
+            width: 100%; height: calc(100% - 48px);
             background: transparent;
             z-index: 5;
             cursor: pointer;
@@ -384,7 +384,8 @@
                 if (text.includes("drive.google.com")) {
                     let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
                     if (fileId) {
-                        htmlOutput += `<iframe src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
+                        // Embedded Google Drive files are given an isolated id string to map keyboard transformations
+                        htmlOutput += `<iframe id="gdEmbedPlayer" src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
                     }
                 } 
                 else if (text.includes("youtube.com") || text.includes("youtu.be")) {
@@ -436,10 +437,9 @@
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        // Wraps the iframe in a safe click intercept shield to stop focus trapping
                         htmlOutput += `
                             <div class="video-container-wrapper">
-                                <div class="video-focus-shield" onclick="handleShieldVideoToggle(this)"></div>
+                                <div class="video-focus-shield" onclick="handleShieldVideoToggle(this)" ontouchstart="handleShieldVideoToggle(this)"></div>
                                 <iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                             </div>
                         `;
@@ -462,14 +462,16 @@
             return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
 
-        // Programmatic click toggle that automatically leaves focus in your parent window layer
+        // Programmatic toggle returns application focus to the body element immediately
         window.handleShieldVideoToggle = function(shieldElement) {
             const player = shieldElement.parentElement.querySelector('#ytPlayer');
             if (player) {
                 player.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
-                // Force focus tracking directly back to the top-level parent body container
-                window.focus();
-                document.body.focus();
+                // Ensure keyboard focus tracks back instantly to main page
+                setTimeout(() => {
+                    window.focus();
+                    document.body.focus();
+                }, 50);
             }
         };
 
@@ -652,7 +654,6 @@
             }, 500);
         }
 
-        // Monitors clip duration and loop points automatically
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
@@ -681,34 +682,27 @@
             }
         });
 
-        // Focus Recovery Engine: If focus gets trapped inside an iframe, pull it back instantly
-        setInterval(() => {
-            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
-                document.activeElement.blur();
-                window.focus();
-                document.body.focus();
-            }
-        }, 300);
-
         // =========================================================
         // UNIFIED KEYBOARD SHORTCUTS MATRIX
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
             const ytPlayer = activeFace.querySelector('#ytPlayer');
-            const hasImage = activeFace.querySelector('img');
+            
+            // Dynamic check detects either standard image assets OR Embedded Google Drive iframe panels
+            const zoomTarget = activeFace.querySelector('img') || activeFace.querySelector('#gdEmbedPlayer');
 
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. IMAGE ZOOM & PAN (Synchronized completely with variables)
-            if (hasImage) {
+            // 1. DUAL MEDIA ZOOM & PAN MATRIX (Handles Native Images + Google Drive Documents)
+            if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault();
                     currentScale += 0.2;
                     if (currentScale > 5) currentScale = 5;
-                    hasImage.style.transition = 'transform 0.1s ease-out';
-                    applyGlobalTransform(hasImage);
+                    zoomTarget.style.transition = 'transform 0.1s ease-out';
+                    applyGlobalTransform(zoomTarget);
                     return;
                 }
                 if (e.key === '-' || e.key === '_') {
@@ -719,22 +713,22 @@
                         currentPanX = 0;
                         currentPanY = 0;
                     }
-                    hasImage.style.transition = 'transform 0.1s ease-out';
-                    applyGlobalTransform(hasImage);
+                    zoomTarget.style.transition = 'transform 0.1s ease-out';
+                    applyGlobalTransform(zoomTarget);
                     return;
                 }
 
                 if (currentScale > 1 && isAltOrCmd) {
                     const step = 20; 
                     e.preventDefault();
-                    hasImage.style.transition = 'none';
+                    zoomTarget.style.transition = 'none';
 
                     if (e.key === 'ArrowUp') currentPanY -= step;
                     if (e.key === 'ArrowDown') currentPanY += step;
                     if (e.key === 'ArrowLeft') currentPanX -= step;
                     if (e.key === 'ArrowRight') currentPanX += step;
 
-                    applyGlobalTransform(hasImage);
+                    applyGlobalTransform(zoomTarget);
                     return;
                 }
             }
@@ -760,19 +754,19 @@
                 }
             }
 
-            // 4. FLASH CARD NAVIGATION, REVEAL, & PLAY PLAYBACK
+            // 4. FLASH CARD NAVIGATION, REVEAL, & VIDEO PLAYBACK
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
 
-                // ENTER KEY -> Explicit direct click simulation on the Flip Card Button element
+                // ENTER KEY -> Direct script execution link to the structural Flip Card Button element
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     if (!btnFlip.disabled) btnFlip.click();
                     return;
                 }
 
-                // SPACEBAR -> Dedicated Play/Pause toggle rule for native video frames
+                // SPACEBAR -> Triggers global YouTube frame Play/Pause event command rules
                 if (e.code === 'Space' || e.key === ' ') {
                     if (ytPlayer) {
                         e.preventDefault();
