@@ -215,25 +215,6 @@
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         input[type="file"] { display: none; }    
         /* Container to keep layout sizing safe */
-.video-wrapper {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    display: inline-block;
-}
-
-/* The transparent button that sits invisibly over YouTube's end-screen */
-.yt-replay-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: transparent;
-    cursor: pointer;
-    display: none; /* Hidden while video plays */
-    z-index: 10;
-}
     </style>
 </head>
 <body>
@@ -393,7 +374,7 @@
                 } 
                 else if (text.includes("youtube.com") || text.includes("youtu.be")) {
                     let videoId = "";
-                    let startTime = "";
+                    let startTime = "0";
                     let endTime = "";
 
                     function convertToSeconds(rawTime) {
@@ -437,17 +418,11 @@
                     if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
                     if (videoId) {
-                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1`;
-                        if (startTime) embedUrl += `&start=${startTime}`;
+                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        // Output the iframe surrounded by our custom click interceptor wrapper
-                        htmlOutput += `
-                            <div class="video-wrapper">
-                                <div class="yt-replay-overlay" onclick="resetFlashcardVideo(this)"></div>
-                                <iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-                            </div>
-                        `;
+                        // Output a completely clean, un-wrapped iframe layout with data target attributes
+                        htmlOutput += `<iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -632,42 +607,86 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
-        // Global reset action handler that intercepts clicks on the video end screen
-        window.resetFlashcardVideo = function(overlayElement) {
-            const wrapper = overlayElement.parentElement;
-            const ytPlayer = wrapper.querySelector('#ytPlayer');
-            if (ytPlayer) {
-                const currentSrc = ytPlayer.src;
-                // Force a true reset of the iframe element
-                ytPlayer.src = '';
-                ytPlayer.src = currentSrc;
-                // Hide overlay until the next clip cycle finishes
-                overlayElement.style.display = 'none';
-            }
-        };
+        // Global tracking variable for the timeline loop watcher
+        let ytLoopInterval = null;
 
-        // Standard event listener tracking video progression to drop down our custom shield overlay
+        // Background loop engine that monitors active video timestamp properties
+        function startYoutubeLoopWatcher() {
+            // Clear any active running monitoring loop first to prevent memory leaks
+            if (ytLoopInterval) clearInterval(ytLoopInterval);
+
+            ytLoopInterval = setInterval(() => {
+                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                const ytPlayer = activeFace.querySelector('#ytPlayer');
+                
+                // If there is no active video on screen right now, do nothing
+                if (!ytPlayer) return;
+
+                const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
+
+                // Request player status details from the iframe frame window context
+                ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
+                ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime' }), '*');
+                ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getPlayerState' }), '*');
+            }, 500); // Polls safely every 500ms
+        }
+
+        // Intercept communications bubbling from the iframe to check current time status
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
                     const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
                     
-                    if (data && (data.event === 'onStateChange' || data.event === 'infoDelivery')) {
-                        const info = data.info || {};
+                    if (data && data.event === 'infoDelivery' && data.info) {
+                        const info = data.info;
+                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                        const ytPlayer = activeFace.querySelector('#ytPlayer');
                         
-                        // State 0 means the video ended or hit its limit parameter
-                        if (info.playerState === 0 || data.info === 0) {
-                            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                            const overlay = activeFace.querySelector('.yt-replay-overlay');
-                            if (overlay) {
-                                // Activate the custom shield so clicking anywhere on the video resets it
-                                overlay.style.display = 'block';
+                        if (ytPlayer) {
+                            const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                            const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
+                            
+                            // Condition A: Video hit its natural end point parameter (Player State === 0)
+                            // Condition B: Native replay button reset the clip back to 0 (Current Time dropped below our custom start)
+                            const isVideoEnded = info.playerState === 0;
+                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                            const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+
+                            if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                                const originalSrc = ytPlayer.src;
+                                // Core fix: Hard-reset the element to force video reconstruction at the original start time
+                                ytPlayer.src = '';
+                                ytPlayer.src = originalSrc;
                             }
                         }
                     }
                 } catch (err) {}
             }
         });
+
+        // Intercept your app's UI rendering process to fire up the sync engine when a card loads
+        const originalUpdateUI = updateUI;
+        updateUI = function() {
+            originalUpdateUI();
+            setTimeout(startYoutubeLoopWatcher, 100);
+        };
+
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                if (currentScale === 1) {
+                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
+                }
+            }, { passive: true });
+        }
+
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
 
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
