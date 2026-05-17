@@ -214,7 +214,6 @@
         button:active, .upload-btn:active { transform: scale(0.96); }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         input[type="file"] { display: none; }    
-        /* Container to keep layout sizing safe */
     </style>
 </head>
 <body>
@@ -421,7 +420,6 @@
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        // Output a completely clean, un-wrapped iframe layout with data target attributes
                         htmlOutput += `<iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
@@ -442,7 +440,6 @@
             return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
 
-        // Applies transforms safely combining manual keyboard controls with existing pointer behaviors
         function applyGlobalTransform(target) {
             if (!target) return;
             if (currentScale < 1) {
@@ -472,7 +469,6 @@
             let isPanning = false;
             let startX = 0, startY = 0;
             let lastTranslateX = 0, lastTranslateY = 0;
-
             let lastTap = 0;
 
             img.addEventListener('touchstart', (e) => {
@@ -610,294 +606,149 @@
         // Global tracking variable for the timeline loop watcher
         let ytLoopInterval = null;
 
-        // Background loop engine that monitors active video timestamp properties
         function startYoutubeLoopWatcher() {
-            // Clear any active running monitoring loop first to prevent memory leaks
             if (ytLoopInterval) clearInterval(ytLoopInterval);
 
             ytLoopInterval = setInterval(() => {
                 const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
                 const ytPlayer = activeFace.querySelector('#ytPlayer');
-                
-                // If there is no active video on screen right now, do nothing
                 if (!ytPlayer) return;
 
-                const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
-                const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
-
-                // Request player status details from the iframe frame window context
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime' }), '*');
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getPlayerState' }), '*');
-            }, 500); // Polls safely every 500ms
+            }, 500);
         }
 
-        // =========================================================
-// KEEP THIS: This loops the video at start/end boundaries
-// =========================================================
-window.addEventListener('message', (e) => {
-    if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
-        try {
-            const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-            if (data && data.event === 'infoDelivery' && data.info) {
-                const info = data.info;
-                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                const ytPlayer = activeFace.querySelector('#ytPlayer');
-                
-                if (ytPlayer) {
-                    const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
-                    const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
-                    
-                    const isVideoEnded = info.playerState === 0;
-                    const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
-                    const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+        // Handles Video auto-loops at endpoint limits
+        window.addEventListener('message', (e) => {
+            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+                try {
+                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                    if (data && data.event === 'infoDelivery' && data.info) {
+                        const info = data.info;
+                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                        const ytPlayer = activeFace.querySelector('#ytPlayer');
+                        
+                        if (ytPlayer) {
+                            const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                            const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
+                            
+                            const isVideoEnded = info.playerState === 0;
+                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                            const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
 
-                    if (isVideoEnded || isResetToZero || isPastEndLimit) {
-                        const originalSrc = ytPlayer.src;
-                        ytPlayer.src = '';
-                        ytPlayer.src = originalSrc;
+                            if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                                const originalSrc = ytPlayer.src;
+                                ytPlayer.src = '';
+                                ytPlayer.src = originalSrc;
+                            }
+                        }
                     }
-                }
+                } catch (err) {}
             }
-        } catch (err) {}
-    }
-});
+        });
 
-// =========================================================
-// ADD THIS RIGHT BELOW IT: This handles keyboard shortcuts
-// =========================================================
-// Fully updated, error-resilient keyboard shortcuts engine
+        // =========================================================
+        // UNIFIED KEYBOARD SHORTCUTS ENGINE
+        // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
             const ytPlayer = activeFace.querySelector('#ytPlayer');
             const hasImage = activeFace.querySelector('img');
 
-            // Global Modifier Key States
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // ==========================================
-            // 1. IMAGE ZOOM & PAN (Highly Resilient)
-            // ==========================================
+            // 1. IMAGE ZOOM & PAN (Synchronized with pointers)
             if (hasImage) {
-                // Key '+' or '=' -> Zoom In
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault();
-                    // Dynamically executes whatever zoom engine function your code uses
-                    if (typeof zoomIn === 'function') zoomIn(); 
-                    else if (typeof changeZoom === 'function') changeZoom(0.1);
-                    else if (hasImage.onclick) hasImage.click(); // Fallback trigger if zoom is tied to clicking the image
+                    currentScale += 0.2;
+                    if (currentScale > 5) currentScale = 5;
+                    hasImage.style.transition = 'transform 0.1s ease-out';
+                    applyGlobalTransform(hasImage);
                     return;
                 }
-                // Key '-' or '_' -> Zoom Out
                 if (e.key === '-' || e.key === '_') {
                     e.preventDefault();
-                    if (typeof zoomOut === 'function') zoomOut();
-                    else if (typeof changeZoom === 'function') changeZoom(-0.1);
+                    currentScale -= 0.2;
+                    if (currentScale < 1) {
+                        currentScale = 1;
+                        currentPanX = 0;
+                        currentPanY = 0;
+                    }
+                    hasImage.style.transition = 'transform 0.1s ease-out';
+                    applyGlobalTransform(hasImage);
                     return;
                 }
 
-                // Check for your app's specific scaling state variable name
-                let detectedScale = 1;
-                if (typeof currentScale !== 'undefined') detectedScale = currentScale;
-                else if (typeof scale !== 'undefined') detectedScale = scale;
-                else if (typeof imgScale !== 'undefined') detectedScale = imgScale;
-
-                // Magnified Panning Engine (Triggers if scale is zoomed in)
-                if (detectedScale > 1 && isAltOrCmd) {
-                    const step = 20; // Pixels per pan movement
+                if (currentScale > 1 && isAltOrCmd) {
+                    const step = 20; 
                     e.preventDefault();
+                    hasImage.style.transition = 'none';
 
-                    if (e.key === 'ArrowUp') {
-                        if (typeof panY !== 'undefined') panY += step;
-                        else if (typeof posY !== 'undefined') posY += step;
-                        else if (typeof offsetY !== 'undefined') offsetY += step;
-                    }
-                    if (e.key === 'ArrowDown') {
-                        if (typeof panY !== 'undefined') panY -= step;
-                        else if (typeof posY !== 'undefined') posY -= step;
-                        else if (typeof offsetY !== 'undefined') offsetY -= step;
-                    }
-                    if (e.key === 'ArrowLeft') {
-                        if (typeof panX !== 'undefined') panX += step;
-                        else if (typeof posX !== 'undefined') posX += step;
-                        else if (typeof offsetX !== 'undefined') offsetX += step;
-                    }
-                    if (e.key === 'ArrowRight') {
-                        if (typeof panX !== 'undefined') panX -= step;
-                        else if (typeof posX !== 'undefined') posX -= step;
-                        else if (typeof offsetX !== 'undefined') offsetX -= step;
-                    }
+                    if (e.key === 'ArrowUp') currentPanY -= step;
+                    if (e.key === 'ArrowDown') currentPanY += step;
+                    if (e.key === 'ArrowLeft') currentPanX -= step;
+                    if (e.key === 'ArrowRight') currentPanX += step;
 
-                    // Dynamically execute your layout redraw function
-                    if (typeof updateTransform === 'function') updateTransform();
-                    else if (typeof applyTransform === 'function') applyTransform();
-                    else if (typeof drawImage === 'function') drawImage();
+                    applyGlobalTransform(hasImage);
                     return;
                 }
             }
 
-            // ==========================================
-            // 2. TEXT SCROLLING (Ctrl + Arrows) -> Working perfectly
-            // ==========================================
+            // 2. TEXT SCROLLING (Ctrl + Arrows)
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // ==========================================
-            // 3. YOUTUBE CONTROLS & TIMELINE SKIPPING
-            // ==========================================
+            // 3. YOUTUBE VIDEO TIMELINE CONTROLS (Standard Horizontal Arrows)
             if (!isAltOrCmd && !isCtrl) {
-                if (e.key === 'ArrowLeft') {
-                    if (ytPlayer) {
-                        e.preventDefault();
-                        // Explicit postMessage target configuration to skip backward 10s safely
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({
-                            event: 'command', func: 'seekTo', args: [-10, true]
-                        }), '*');
-                        return;
-                    }
+                if (e.key === 'ArrowLeft' && ytPlayer) {
+                    e.preventDefault();
+                    ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [-10, true] }), '*');
+                    return;
                 }
-                if (e.key === 'ArrowRight') {
-                    if (ytPlayer) {
-                        e.preventDefault();
-                        // Explicit postMessage target configuration to skip forward 10s safely
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({
-                            event: 'command', func: 'seekTo', args: [10, true]
-                        }), '*');
-                        return;
-                    }
+                if (e.key === 'ArrowRight' && ytPlayer) {
+                    e.preventDefault();
+                    ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [10, true] }), '*');
+                    return;
                 }
             }
 
-            // ==========================================
-            // 4. FLASH CARD NAVIGATION & ENTER SWITCH
-            // ==========================================
+            // 4. FLASH CARD NAVIGATION, REVEAL, & PLAY PLAYBACK
             if (!isAltOrCmd && !isCtrl) {
-                // ArrowUp -> Previous Card (Working)
-                if (e.key === 'ArrowUp') {
+                if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
+                if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
+
+                // ENTER KEY -> Explicit direct physical simulation link to the Flip Card Button element
+                if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (typeof btnPrev !== 'undefined') btnPrev.click(); 
-                    return;
-                }
-                // ArrowDown -> Next Card (Working)
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (typeof btnNext !== 'undefined') btnNext.click();
+                    if (!btnFlip.disabled) btnFlip.click();
                     return;
                 }
 
-                // ENTER KEY FIX: Checks focus and splits cleanly
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    
-                    // If a video element exists on screen and has active context focus
-                    if (ytPlayer && (document.activeElement === ytPlayer || hasImage === null)) {
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({
-                            event: 'command', func: 'toggleVideo', args: []
-                        }), '*');
-                    } else {
-                        // Secure clean card flipping action fallback
-                        if (typeof card !== 'undefined') {
-                            card.classList.toggle('is-flipped');
-                            // Trigger UI updates if required by your layout loop
-                            if (typeof updateUI === 'function') updateUI();
-                        }
+                // SPACEBAR -> Dedicated Play/Pause engine toggle rule for native video elements
+                if (e.code === 'Space' || e.key === ' ') {
+                    if (ytPlayer) {
+                        e.preventDefault();
+                        ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
                     }
                     return;
                 }
             }
         });
 
-// Your remaining code (like let ytLoopInterval = null; or function applyTouchScrolling) goes here...
-
-        // Intercept your app's UI rendering process to fire up the sync engine when a card loads
         const originalUpdateUI = updateUI;
         updateUI = function() {
             originalUpdateUI();
             setTimeout(startYoutubeLoopWatcher, 100);
         };
 
-        function applyTouchScrolling(element) {
-            let startY = 0, currentScrollTop = 0;
-            element.addEventListener('touchstart', (e) => {
-                startY = e.touches[0].pageY;
-                currentScrollTop = element.scrollTop;
-            }, { passive: true });
-            element.addEventListener('touchmove', (e) => {
-                if (currentScale === 1) {
-                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
-                }
-            }, { passive: true });
-        }
-
-        applyTouchScrolling(cardFront);
-        applyTouchScrolling(cardBack);
-
-        function applyTouchScrolling(element) {
-            let startY = 0, currentScrollTop = 0;
-            element.addEventListener('touchstart', (e) => {
-                startY = e.touches[0].pageY;
-                currentScrollTop = element.scrollTop;
-            }, { passive: true });
-            element.addEventListener('touchmove', (e) => {
-                if (currentScale === 1) {
-                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
-                }
-            }, { passive: true });
-        }
-
-        applyTouchScrolling(cardFront);
-        applyTouchScrolling(cardBack);
-        function applyTouchScrolling(element) {
-            let startY = 0, currentScrollTop = 0;
-            element.addEventListener('touchstart', (e) => {
-                startY = e.touches[0].pageY;
-                currentScrollTop = element.scrollTop;
-            }, { passive: true });
-            element.addEventListener('touchmove', (e) => {
-                if (currentScale === 1) {
-                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
-                }
-            }, { passive: true });
-        }
-
-        applyTouchScrolling(cardFront);
-        applyTouchScrolling(cardBack);
-
-        function applyTouchScrolling(element) {
-            let startY = 0, currentScrollTop = 0;
-            element.addEventListener('touchstart', (e) => {
-                startY = e.touches[0].pageY;
-                currentScrollTop = element.scrollTop;
-            }, { passive: true });
-            element.addEventListener('touchmove', (e) => {
-                if (currentScale === 1) {
-                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
-                }
-            }, { passive: true });
-        }
-
-        applyTouchScrolling(cardFront);
-        applyTouchScrolling(cardBack);
-
-        function applyTouchScrolling(element) {
-            let startY = 0, currentScrollTop = 0;
-            element.addEventListener('touchstart', (e) => {
-                startY = e.touches[0].pageY;
-                currentScrollTop = element.scrollTop;
-            }, { passive: true });
-            element.addEventListener('touchmove', (e) => {
-                if (currentScale === 1) {
-                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
-                }
-            }, { passive: true });
-        }
-
-        applyTouchScrolling(cardFront);
-        applyTouchScrolling(cardBack);
+        // Single clean definition for touch engine alignments
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
