@@ -701,6 +701,42 @@
             }
         });
 
+        // Intercept YouTube player state changes to force loop/replay boundaries
+        window.addEventListener('message', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                
+                // Check if the message is a state change from our YouTube player
+                if (data.event === 'onStateChange') {
+                    const playerState = data.info;
+                    const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                    const ytPlayer = activeFace.querySelector('#ytPlayer');
+                    
+                    // State 0 means the video has ended
+                    if (playerState === 0 && ytPlayer) {
+                        // Extract the original start time from the iframe src parameter
+                        const srcUrl = new URL(ytPlayer.src);
+                        const startTime = srcUrl.searchParams.get('start') || 0;
+                        
+                        // Force the player to seek back to the custom start time and stay paused or replay cleanly
+                        ytPlayer.contentWindow.postMessage(JSON.stringify({
+                            event: 'command',
+                            func: 'seekTo',
+                            args: [parseInt(startTime), true]
+                        }), '*');
+                        
+                        // Optional: Automatically hit play again if you want it to loop automatically
+                        ytPlayer.contentWindow.postMessage(JSON.stringify({
+                            event: 'command',
+                            func: 'playVideo',
+                            args: []
+                        }), '*');
+                    }
+                }
+            } catch (err) {
+                // Ignore non-JSON messages from other third-party scripts/extensions
+            }
+        });
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
