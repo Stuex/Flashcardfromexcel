@@ -373,6 +373,9 @@
                 } 
                 else if (text.includes("youtube.com") || text.includes("youtu.be")) {
                     let videoId = "";
+                    let startTime = "";
+
+                    // 1. Extract the raw Video ID safely
                     if (text.includes("youtu.be/")) {
                         videoId = text.split("youtu.be/")[1].split(/[?#]/)[0];
                     } else if (text.includes("embed/")) {
@@ -383,8 +386,41 @@
                         videoId = text.split("v=")[1].split("&")[0].split(/[?#]/)[0];
                     }
                     
+                    // 2. Extract and format the start time parameter (t=)
+                    const timeMatch = text.match(/[?&]t=([^&]+)/);
+                    if (timeMatch) {
+                        let rawTime = timeMatch[1].replace(/s$/, ""); // Clear any trailing 's'
+                        
+                        // Handle timestamps containing minutes or hours (e.g., 1m30s, 4m)
+                        if (rawTime.includes('m') || rawTime.includes('h')) {
+                            let hours = rawTime.match(/(\d+)h/);
+                            let minutes = rawTime.match(/(\d+)m/);
+                            let seconds = rawTime.match(/(\d+)s?$/);
+                            
+                            let totalSeconds = 0;
+                            if (hours) totalSeconds += parseInt(hours[1]) * 3600;
+                            if (minutes) totalSeconds += parseInt(minutes[1]) * 60;
+                            
+                            if (seconds && !rawTime.endsWith('m') && !rawTime.endsWith('h')) {
+                                totalSeconds += parseInt(seconds[1]);
+                            } else {
+                                // Double check digits directly trailing the 'm' character
+                                let endingSec = rawTime.match(/m(\d+)$/);
+                                if (endingSec) totalSeconds += parseInt(endingSec[1]);
+                            }
+                            startTime = totalSeconds;
+                        } else {
+                            startTime = rawTime; // It's already plain seconds digits
+                        }
+                    }
+                    
+                    // 3. Assemble the updated iframe source
                     if (videoId) {
-                        htmlOutput += `<iframe id="ytPlayer" src="https://www.youtube.com/embed/${videoId}?enablejsapi=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1`;
+                        if (startTime) {
+                            embedUrl += `&start=${startTime}`;
+                        }
+                        htmlOutput += `<iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -397,6 +433,12 @@
                 }
             }
 
+            if (contentData.image) {
+                htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
+            }
+
+            return htmlOutput || `<div class="text-centered-helper"></div>`;
+        }
             if (contentData.image) {
                 htmlOutput += `<img src="${contentData.image}" alt="Embedded Flashcard Image" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
             }
