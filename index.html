@@ -214,6 +214,26 @@
         button:active, .upload-btn:active { transform: scale(0.96); }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         input[type="file"] { display: none; }    
+        /* Container to keep layout sizing safe */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: inline-block;
+}
+
+/* The transparent button that sits invisibly over YouTube's end-screen */
+.yt-replay-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    cursor: pointer;
+    display: none; /* Hidden while video plays */
+    z-index: 10;
+}
     </style>
 </head>
 <body>
@@ -417,12 +437,17 @@
                     if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
                     if (videoId) {
-                        // 3. Native Loop Integration: Loop + Playlist parameters force internal timeline resets
-                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&loop=1&playlist=${videoId}`;
+                        let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1`;
                         if (startTime) embedUrl += `&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        htmlOutput += `<iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                        // Output the iframe surrounded by our custom click interceptor wrapper
+                        htmlOutput += `
+                            <div class="video-wrapper">
+                                <div class="yt-replay-overlay" onclick="resetFlashcardVideo(this)"></div>
+                                <iframe id="ytPlayer" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                            </div>
+                        `;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -607,7 +632,58 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
-        
+        // Global reset action handler that intercepts clicks on the video end screen
+        window.resetFlashcardVideo = function(overlayElement) {
+            const wrapper = overlayElement.parentElement;
+            const ytPlayer = wrapper.querySelector('#ytPlayer');
+            if (ytPlayer) {
+                const currentSrc = ytPlayer.src;
+                // Force a true reset of the iframe element
+                ytPlayer.src = '';
+                ytPlayer.src = currentSrc;
+                // Hide overlay until the next clip cycle finishes
+                overlayElement.style.display = 'none';
+            }
+        };
+
+        // Standard event listener tracking video progression to drop down our custom shield overlay
+        window.addEventListener('message', (e) => {
+            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+                try {
+                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                    
+                    if (data && (data.event === 'onStateChange' || data.event === 'infoDelivery')) {
+                        const info = data.info || {};
+                        
+                        // State 0 means the video ended or hit its limit parameter
+                        if (info.playerState === 0 || data.info === 0) {
+                            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                            const overlay = activeFace.querySelector('.yt-replay-overlay');
+                            if (overlay) {
+                                // Activate the custom shield so clicking anywhere on the video resets it
+                                overlay.style.display = 'block';
+                            }
+                        }
+                    }
+                } catch (err) {}
+            }
+        });
+
+        function applyTouchScrolling(element) {
+            let startY = 0, currentScrollTop = 0;
+            element.addEventListener('touchstart', (e) => {
+                startY = e.touches[0].pageY;
+                currentScrollTop = element.scrollTop;
+            }, { passive: true });
+            element.addEventListener('touchmove', (e) => {
+                if (currentScale === 1) {
+                    element.scrollTop = currentScrollTop + (startY - e.touches[0].pageY);
+                }
+            }, { passive: true });
+        }
+
+        applyTouchScrolling(cardFront);
+        applyTouchScrolling(cardBack);
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => {
