@@ -632,38 +632,111 @@
             }, 500); // Polls safely every 500ms
         }
 
-        // Intercept communications bubbling from the iframe to check current time status
-        window.addEventListener('message', (e) => {
-            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
-                try {
-                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        // =========================================================
+// KEEP THIS: This loops the video at start/end boundaries
+// =========================================================
+window.addEventListener('message', (e) => {
+    if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+        try {
+            const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            if (data && data.event === 'infoDelivery' && data.info) {
+                const info = data.info;
+                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                const ytPlayer = activeFace.querySelector('#ytPlayer');
+                
+                if (ytPlayer) {
+                    const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                    const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
                     
-                    if (data && data.event === 'infoDelivery' && data.info) {
-                        const info = data.info;
-                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                        const ytPlayer = activeFace.querySelector('#ytPlayer');
-                        
-                        if (ytPlayer) {
-                            const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
-                            const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
-                            
-                            // Condition A: Video hit its natural end point parameter (Player State === 0)
-                            // Condition B: Native replay button reset the clip back to 0 (Current Time dropped below our custom start)
-                            const isVideoEnded = info.playerState === 0;
-                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
-                            const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+                    const isVideoEnded = info.playerState === 0;
+                    const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                    const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
 
-                            if (isVideoEnded || isResetToZero || isPastEndLimit) {
-                                const originalSrc = ytPlayer.src;
-                                // Core fix: Hard-reset the element to force video reconstruction at the original start time
-                                ytPlayer.src = '';
-                                ytPlayer.src = originalSrc;
-                            }
-                        }
+                    if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                        const originalSrc = ytPlayer.src;
+                        ytPlayer.src = '';
+                        ytPlayer.src = originalSrc;
                     }
-                } catch (err) {}
+                }
             }
-        });
+        } catch (err) {}
+    }
+});
+
+// =========================================================
+// ADD THIS RIGHT BELOW IT: This handles keyboard shortcuts
+// =========================================================
+window.addEventListener('keydown', (e) => {
+    const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+    const ytPlayer = activeFace.querySelector('#ytPlayer');
+    const hasImage = activeFace.querySelector('img');
+
+    const isAltOrCmd = e.altKey || e.metaKey;
+    const isCtrl = e.ctrlKey;
+
+    // 1. IMAGE ZOOM & PAN
+    if (hasImage) {
+        if (e.key === '+' || e.key === '=') {
+            e.preventDefault();
+            if (typeof zoomIn === 'function') zoomIn(); 
+            return;
+        }
+        if (e.key === '-' || e.key === '_') {
+            e.preventDefault();
+            if (typeof zoomOut === 'function') zoomOut();
+            return;
+        }
+
+        const scaleCheck = (typeof currentScale !== 'undefined' ? currentScale : (typeof scale !== 'undefined' ? scale : 1));
+        if (scaleCheck > 1 && isAltOrCmd) {
+            const step = 20;
+            if (e.key === 'ArrowUp') { e.preventDefault(); if (typeof panY !== 'undefined') panY += step; if (typeof updateTransform === 'function') updateTransform(); return; }
+            if (e.key === 'ArrowDown') { e.preventDefault(); if (typeof panY !== 'undefined') panY -= step; if (typeof updateTransform === 'function') updateTransform(); return; }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); if (typeof panX !== 'undefined') panX += step; if (typeof updateTransform === 'function') updateTransform(); return; }
+            if (e.key === 'ArrowRight') { e.preventDefault(); if (typeof panX !== 'undefined') panX -= step; if (typeof updateTransform === 'function') updateTransform(); return; }
+        }
+    }
+
+    // 2. TEXT SCROLLING (Ctrl + Arrows)
+    if (isCtrl) {
+        const scrollStep = 40;
+        if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
+    }
+
+    // 3. YOUTUBE VIDEO CONTROLS (Standard Arrows)
+    if (!isAltOrCmd && !isCtrl) {
+        if (e.key === 'ArrowLeft' && ytPlayer) {
+            e.preventDefault();
+            ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [-10, true] }), '*');
+            return;
+        }
+        if (e.key === 'ArrowRight' && ytPlayer) {
+            e.preventDefault();
+            ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [10, true] }), '*');
+            return;
+        }
+    }
+
+    // 4. FLASH CARD NAVIGATION
+    if (!isAltOrCmd && !isCtrl) {
+        if (e.key === 'ArrowUp') { e.preventDefault(); if (typeof btnPrev !== 'undefined') btnPrev.click(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); if (typeof btnNext !== 'undefined') btnNext.click(); return; }
+
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (ytPlayer) {
+                ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
+            } else {
+                if (typeof card !== 'undefined') card.classList.toggle('is-flipped');
+                if (typeof updateUI === 'function') updateUI();
+            }
+            return;
+        }
+    }
+});
+
+// Your remaining code (like let ytLoopInterval = null; or function applyTouchScrolling) goes here...
 
         // Intercept your app's UI rendering process to fire up the sync engine when a card loads
         const originalUpdateUI = updateUI;
