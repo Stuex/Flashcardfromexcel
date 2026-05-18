@@ -361,6 +361,8 @@
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
         let ytLoopInterval = null;
+        let lastKnownPlayerState = -1; 
+        let lastKnownCurrentTime = 0; // NEW: Tracks the exact second the video is on
 
         function startYoutubeLoopWatcher() {
             if (ytLoopInterval) clearInterval(ytLoopInterval);
@@ -369,6 +371,7 @@
                 const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
                 const ytPlayer = activeFace.querySelector('#ytPlayer');
                 if (!ytPlayer) return;
+
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime' }), '*');
                 ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getPlayerState' }), '*');
@@ -386,6 +389,9 @@
                         
                         if (ytPlayer) {
                             if (info.playerState !== undefined) lastKnownPlayerState = info.playerState;
+                            
+                            // NEW: Continually update our app's memory of where the video timeline is
+                            if (info.currentTime !== undefined) lastKnownCurrentTime = info.currentTime;
 
                             const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
                             const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
@@ -394,7 +400,9 @@
                             const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
 
                             if (isVideoEnded || isResetToZero || isPastEndLimit) {
-                                const originalSrc = ytPlayer.src; ytPlayer.src = ''; ytPlayer.src = originalSrc; lastKnownPlayerState = -1;
+                                const originalSrc = ytPlayer.src; ytPlayer.src = ''; ytPlayer.src = originalSrc; 
+                                lastKnownPlayerState = -1;
+                                lastKnownCurrentTime = startSec; // Reset memory to your start time
                             }
                         }
                     }
@@ -441,13 +449,23 @@
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 3. YOUTUBE CONTROLS
+            // 3. HORIZONTAL NATIVE YOUTUBE TIMELINE STEPPING (Relative Time Skipping)
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && ytPlayer) {
-                    e.preventDefault(); ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [-10, true] }), '*'); return;
+                    e.preventDefault();
+                    // Subtract 10 seconds from current time, but don't go below 0
+                    let seekPos = Math.max(0, lastKnownCurrentTime - 10);
+                    ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seekPos, true] }), '*');
+                    lastKnownCurrentTime = seekPos; 
+                    return;
                 }
                 if (e.key === 'ArrowRight' && ytPlayer) {
-                    e.preventDefault(); ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [10, true] }), '*'); return;
+                    e.preventDefault();
+                    // Add 10 seconds to the current tracked time
+                    let seekPos = lastKnownCurrentTime + 10;
+                    ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seekPos, true] }), '*');
+                    lastKnownCurrentTime = seekPos; 
+                    return;
                 }
             }
 
