@@ -163,6 +163,8 @@
         let currentPanX = 0;
         let currentPanY = 0;
         let lastKnownPlayerState = -1; 
+        let lastKnownCurrentTime = 0;
+        let ytLoopInterval = null;
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -174,7 +176,7 @@
         const counterOverlay = document.getElementById('counterOverlay');
         const uploadLabel = document.getElementById('uploadLabel');
 
-        // Focus Reclaimer: Clicking anywhere outside an iframe gives keyboard power back to the app
+        // Focus Reclaimer
         document.getElementById('mainContainer').addEventListener('click', () => {
             window.focus();
             if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
@@ -218,17 +220,19 @@
         function adjustTypography(element, text) {
             if (!text) text = "";
             const helper = element.querySelector('.text-centered-helper');
-            if (helper) helper.style.marginTop = "0px";
+            if (!helper) return; // Prevent crashing if card only contains an iframe/image
+            
+            helper.style.marginTop = "0px";
             const len = text.length;
             
             if (len > 300) { element.style.fontSize = "1.2rem"; element.style.textAlign = "left"; } 
             else if (len > 150) { element.style.fontSize = "1.5rem"; element.style.textAlign = "left"; } 
             else if (len > 50) {
                 element.style.fontSize = "1.8rem"; element.style.textAlign = "center";
-                if (helper && element.clientHeight > helper.clientHeight) helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
+                if (element.clientHeight > helper.clientHeight) helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
             } else {
                 element.style.fontSize = "2.5rem"; element.style.textAlign = "center";
-                if (helper && element.clientHeight > helper.clientHeight) helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
+                if (element.clientHeight > helper.clientHeight) helper.style.marginTop = ((element.clientHeight - helper.clientHeight) / 2 - 24) + "px";
             }
         }
 
@@ -297,7 +301,6 @@
             if (mediaTarget) applyGlobalTransform(mediaTarget);
         }
 
-        // TOUCH FIX: Removed aggressive preventDefault() so screen scrolling works normally again
         function enableImagePanZoom(img) {
             img.style.transformOrigin = 'center';
             let startDistance = 0, startScale = 1, isPanning = false, startX = 0, startY = 0, lastTranslateX = 0, lastTranslateY = 0, lastTap = 0;
@@ -308,7 +311,7 @@
                 if (tapLength < 300 && tapLength > 0 && e.touches.length === 1) {
                     currentScale = currentScale > 1 ? 1 : 2.5; currentPanX = 0; currentPanY = 0;
                     img.style.transition = 'transform 0.3s ease-in-out'; applyGlobalTransform(img);
-                    e.preventDefault(); // Only block if double tapping
+                    e.preventDefault();
                 }
                 lastTap = currentTime;
 
@@ -360,13 +363,8 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
-        let ytLoopInterval = null;
-        let lastKnownPlayerState = -1; 
-        let lastKnownCurrentTime = 0; // NEW: Tracks the exact second the video is on
-
         function startYoutubeLoopWatcher() {
             if (ytLoopInterval) clearInterval(ytLoopInterval);
-            lastKnownPlayerState = -1; 
             ytLoopInterval = setInterval(() => {
                 const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
                 const ytPlayer = activeFace.querySelector('#ytPlayer');
@@ -389,8 +387,6 @@
                         
                         if (ytPlayer) {
                             if (info.playerState !== undefined) lastKnownPlayerState = info.playerState;
-                            
-                            // NEW: Continually update our app's memory of where the video timeline is
                             if (info.currentTime !== undefined) lastKnownCurrentTime = info.currentTime;
 
                             const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
@@ -402,7 +398,7 @@
                             if (isVideoEnded || isResetToZero || isPastEndLimit) {
                                 const originalSrc = ytPlayer.src; ytPlayer.src = ''; ytPlayer.src = originalSrc; 
                                 lastKnownPlayerState = -1;
-                                lastKnownCurrentTime = startSec; // Reset memory to your start time
+                                lastKnownCurrentTime = startSec;
                             }
                         }
                     }
@@ -449,11 +445,10 @@
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 3. HORIZONTAL NATIVE YOUTUBE TIMELINE STEPPING (Relative Time Skipping)
+            // 3. HORIZONTAL NATIVE YOUTUBE TIMELINE STEPPING
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && ytPlayer) {
                     e.preventDefault();
-                    // Subtract 10 seconds from current time, but don't go below 0
                     let seekPos = Math.max(0, lastKnownCurrentTime - 10);
                     ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seekPos, true] }), '*');
                     lastKnownCurrentTime = seekPos; 
@@ -461,7 +456,6 @@
                 }
                 if (e.key === 'ArrowRight' && ytPlayer) {
                     e.preventDefault();
-                    // Add 10 seconds to the current tracked time
                     let seekPos = lastKnownCurrentTime + 10;
                     ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [seekPos, true] }), '*');
                     lastKnownCurrentTime = seekPos; 
@@ -487,7 +481,6 @@
             }
         });
 
-        // Cleaned up scrolling logic (removed the duplicates)
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
             element.addEventListener('touchstart', (e) => { startY = e.touches[0].pageY; currentScrollTop = element.scrollTop; }, { passive: true });
