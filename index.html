@@ -376,35 +376,45 @@
             }, 500);
         }
 
-        window.addEventListener('message', (e) => {
-            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
-                try {
-                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-                    if (data && data.event === 'infoDelivery' && data.info) {
-                        const info = data.info;
-                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                        const ytPlayer = activeFace.querySelector('#ytPlayer');
-                        
-                        if (ytPlayer) {
-                            if (info.playerState !== undefined) lastKnownPlayerState = info.playerState;
-                            if (info.currentTime !== undefined) lastKnownCurrentTime = info.currentTime;
+        // =========================================================
+// KEEP THIS: This loops the video at start/end boundaries
+// =========================================================
+window.addEventListener('message', (e) => {
+    if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+        try {
+            const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            if (data && data.event === 'infoDelivery' && data.info) {
+                const info = data.info;
+                
+                // --- ADD THIS CRITICAL FIX HERE ---
+                // If the player is actively serving an ad, completely exit 
+                // and skip loop checks so the video doesn't break or reset.
+                if (info.adState === 1 || info.isAdPlaying === true) {
+                    return; 
+                }
+                // ----------------------------------
 
-                            const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
-                            const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
-                            const isVideoEnded = info.playerState === 0;
-                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
-                            const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                const ytPlayer = activeFace.querySelector('#ytPlayer');
+                
+                if (ytPlayer) {
+                    const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                    const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
+                    
+                    const isVideoEnded = info.playerState === 0;
+                    const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                    const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
 
-                            if (isVideoEnded || isResetToZero || isPastEndLimit) {
-                                const originalSrc = ytPlayer.src; ytPlayer.src = ''; ytPlayer.src = originalSrc; 
-                                lastKnownPlayerState = -1;
-                                lastKnownCurrentTime = startSec;
-                            }
-                        }
+                    if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                        const originalSrc = ytPlayer.src;
+                        ytPlayer.src = '';
+                        ytPlayer.src = originalSrc;
                     }
-                } catch (err) {}
+                }
             }
-        });
+        } catch (err) {}
+    }
+});
 
         // =========================================================
         // KEYBOARD ENGINE
