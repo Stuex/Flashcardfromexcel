@@ -36,6 +36,7 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* Essential for maintaining shortcut programmatic event targeting */
         .app-container {
             display: flex; flex-direction: column;
             width: 100%; 
@@ -43,6 +44,7 @@
             height: 100dvh;
             padding: env(safe-area-inset-top, 8px) 8px env(safe-area-inset-bottom, 8px) 8px;
             box-sizing: border-box; position: relative;
+            outline: none;
         }
 
         .card-counter-overlay {
@@ -126,7 +128,7 @@
 </head>
 <body>
 
-    <div class="app-container" id="mainContainer">
+    <div class="app-container" id="mainContainer" tabindex="0">
         <div class="card-counter-overlay" id="counterOverlay"></div>
 
         <div class="scene">
@@ -171,6 +173,7 @@
         let activeYTPlayer = null;
         let ytTimeCheckInterval = null;
 
+        const container = document.getElementById('mainContainer');
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
@@ -181,18 +184,32 @@
         const counterOverlay = document.getElementById('counterOverlay');
         const uploadLabel = document.getElementById('uploadLabel');
 
-        // Global YouTube SDK complete handler required by iframe API
-        window.onYouTubeIframeAPIReady = function() {
-            // API loaded successfully
-        };
+        // Global YouTube SDK handler
+        window.onYouTubeIframeAPIReady = function() { };
 
-        // Focus Reclaimer
-        document.getElementById('mainContainer').addEventListener('click', () => {
-            window.focus();
+        // Automatically pull focus back when the container is clicked
+        container.addEventListener('click', () => {
+            reclaimFocus();
+        });
+
+        function reclaimFocus() {
+            container.focus();
             if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
                 document.activeElement.blur(); 
             }
-        });
+            window.focus();
+        }
+
+        // CONTINUOUS FOCUS MONITOR: Strips focus away from YouTube iframes 
+        // to keep your main layout responsive to keyboard inputs.
+        setInterval(() => {
+            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
+                // Check if it's our YouTube player
+                if (document.activeElement.classList.contains('yt-cards-player') || document.activeElement.id === 'gdEmbedPlayer') {
+                    reclaimFocus();
+                }
+            }
+        }, 200);
 
         function arrayBufferToBase64(buffer) {
             let binary = ''; const bytes = new Uint8Array(buffer);
@@ -283,8 +300,6 @@
                     const endMatch = text.match(/[?&](?:end|stop)=([^&]+)/); if (endMatch) endTime = convertToSeconds(endMatch[1]);
                     
                     if (videoId) {
-                        // The custom start parameter is stripped from the URL src to let pre-rolls initialize safely. 
-                        // It is kept in data attributes so the JavaScript API can fetch it.
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0`;
                         htmlOutput += `<iframe class="yt-cards-player" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
@@ -360,7 +375,6 @@
             if (flashcards.length === 0) return;
             card.classList.remove('is-flipped'); resetTransformations();
             
-            // Clear existing player instances and intervals
             if (ytTimeCheckInterval) clearInterval(ytTimeCheckInterval);
             if (activeYTPlayer) {
                 try { activeYTPlayer.destroy(); } catch(e) {}
@@ -382,9 +396,6 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
-        // =========================================================
-        // YOUTUBE SDK CONTROLLER WITH ADVANCED AD STABILITY WORKAROUNDS
-        // =========================================================
         function initializeActiveCardYouTubeAPI() {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
             const ytIframe = activeFace.querySelector('.yt-cards-player');
@@ -397,13 +408,9 @@
             activeYTPlayer = new YT.Player(ytIframe, {
                 events: {
                     'onStateChange': function(event) {
-                        // State 1 = PLAYING
                         if (event.data === YT.PlayerState.PLAYING) {
-                            // Check via standard API if an advertisement is currently playing
                             const isAdPlaying = activeYTPlayer.getAdState && activeYTPlayer.getAdState() === 1;
-                            
                             if (!isAdPlaying) {
-                                // Safe from ads! Apply timestamp if it hasn't been set yet
                                 if (!setupTimestampApplied && targetStartTime > 0) {
                                     setupTimestampApplied = true;
                                     activeYTPlayer.seekTo(targetStartTime, true);
@@ -414,18 +421,16 @@
                 }
             });
 
-            // Tracking Loop for Loop Constraints & Custom End Timestamps
             ytTimeCheckInterval = setInterval(() => {
                 if (!activeYTPlayer || !activeYTPlayer.getCurrentTime || !activeYTPlayer.getPlayerState) return;
                 
                 try {
                     const isAdPlaying = activeYTPlayer.getAdState && activeYTPlayer.getAdState() === 1;
-                    if (isAdPlaying) return; // Completely ignore tracking logic during ad runtimes
+                    if (isAdPlaying) return;
 
                     const currentTime = activeYTPlayer.getCurrentTime();
                     const currentState = activeYTPlayer.getPlayerState();
 
-                    // Loop parameters checking
                     const hasEnded = currentState === YT.PlayerState.ENDED;
                     const hasPassedEndLimit = targetEndTime && currentTime >= targetEndTime;
                     const hasResetBuggedBack = targetStartTime > 0 && setupTimestampApplied && currentTime > 0 && currentTime < (targetStartTime - 1.5);
@@ -438,16 +443,14 @@
             }, 400);
         }
 
-        // Handle structural rotation events safely
         btnFlip.addEventListener('click', () => {
             if (flashcards.length > 0) {
-                // Re-sync loop properties for back-face YouTube embed components if applicable
                 setTimeout(initializeActiveCardYouTubeAPI, 400);
             }
         });
 
         // =========================================================
-        // KEYBOARD ENGINE (REPLACE YOUR ENTIRE COPIED BLOCK WITH THIS)
+        // SYSTEM ENGINE KEYBOARD INTERCEPTOR
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
@@ -456,32 +459,29 @@
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. GLOBAL OVERRIDE FOR NAVIGATION & FLIP (Forces window focus back)
+            // 1. GLOBAL HIGH-PRIORITY SHORTCUTS (ArrowUp, ArrowDown, Enter)
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { 
                     e.preventDefault(); 
                     if (!btnPrev.disabled) btnPrev.click(); 
-                    window.focus(); 
-                    document.getElementById('mainContainer').focus();
+                    reclaimFocus();
                     return; 
                 }
                 if (e.key === 'ArrowDown') { 
                     e.preventDefault(); 
                     if (!btnNext.disabled) btnNext.click(); 
-                    window.focus(); 
-                    document.getElementById('mainContainer').focus();
+                    reclaimFocus();
                     return; 
                 }
                 if (e.key === 'Enter') { 
                     e.preventDefault(); 
                     if (!btnFlip.disabled) btnFlip.click(); 
-                    window.focus(); 
-                    document.getElementById('mainContainer').focus();
+                    reclaimFocus();
                     return; 
                 }
             }
 
-            // 2. ZOOM CONTROLS
+            // 2. ZOOM ENGINE CONTROLS
             if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault(); currentScale += 0.2; if (currentScale > 5) currentScale = 5;
@@ -502,14 +502,14 @@
                 }
             }
 
-            // 3. SCROLL CONTROLS
+            // 3. INTERNAL CONTENT AXIS SCROLLING
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 4. YOUTUBE SEEK & PLAY/PAUSE CONTROLS
+            // 4. EMBED MEDIA SEEK & PLAY/PAUSE CONTROLS
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && activeYTPlayer && activeYTPlayer.getCurrentTime) {
                     e.preventDefault();
@@ -533,7 +533,7 @@
                     return;
                 }
             }
-        }, true); // Note the "true" here at the end!
+        }, true); 
 
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
@@ -543,7 +543,7 @@
         applyTouchScrolling(cardFront); applyTouchScrolling(cardBack);
 
         // =========================================================
-        // EXCEL IMPORTER EVENT HANDLER
+        // EXCEL WORKBOOK DISPATCH HANDLER
         // =========================================================
         fileUpload.addEventListener('change', async (e) => {
             const file = e.target.files[0]; if (!file) return;
@@ -584,6 +584,7 @@
 
                     if (flashcards.length > 0) {
                         uploadLabel.style.display = 'none'; currentIndex = 0; updateUI();
+                        reclaimFocus();
                     } else {
                         cardFront.innerHTML = '<div class="text-centered-helper">No data found in Excel</div>';
                         uploadLabel.innerText = "Import Excel"; uploadLabel.style.pointerEvents = "auto"; showCounter(); btnFlip.disabled = true;
