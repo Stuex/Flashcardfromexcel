@@ -105,6 +105,16 @@
             transition: transform 0.1s ease-out; transform-origin: center center;
         }
 
+        /* Fullscreen handling style rule exceptions */
+        .card-face:fullscreen .card-content-scroll,
+        .card-face:-webkit-full-screen .card-content-scroll {
+            padding: 0;
+        }
+        .card-face:fullscreen iframe,
+        .card-face:-webkit-full-screen iframe {
+            border-radius: 0;
+        }
+
         .controls-container {
             display: flex; flex-direction: column; gap: 10px; align-items: center;
             width: 100%; max-width: 800px; margin: 0 auto; flex-shrink: 0;
@@ -133,12 +143,12 @@
 
         <div class="scene">
             <div class="card" id="flashcard">
-                <div class="card-face card-front">
+                <div class="card-face card-front" id="frontFaceContainer">
                     <div class="card-content-scroll" id="cardFront">
                         <div class="text-centered-helper">Upload Excel to Start</div>
                     </div>
                 </div>
-                <div class="card-face card-back">
+                <div class="card-face card-back" id="backFaceContainer">
                     <div class="card-content-scroll" id="cardBack">
                         <div class="text-centered-helper"></div>
                     </div>
@@ -178,6 +188,8 @@
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
         const cardBack = document.getElementById('cardBack');
+        const frontFaceContainer = document.getElementById('frontFaceContainer');
+        const backFaceContainer = document.getElementById('backFaceContainer');
         const btnPrev = document.getElementById('btnPrev');
         const btnFlip = document.getElementById('btnFlip');
         const btnNext = document.getElementById('btnNext');
@@ -198,6 +210,18 @@
 
         container.addEventListener('click', () => {
             reclaimFocus();
+        });
+
+        // FIXED FOCUS RETENTION HANDLER: Detects when focus leaves the main wrapper 
+        // to a native iframe object (like clicking skip ad) and immediately anchors it back.
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                const ytIframe = activeFace.querySelector('.yt-cards-player');
+                if (document.activeElement === ytIframe || document.activeElement.tagName === 'IFRAME') {
+                    reclaimFocus();
+                }
+            }, 50);
         });
 
         function arrayBufferToBase64(buffer) {
@@ -482,10 +506,59 @@
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+            const targetFaceContainer = card.classList.contains('is-flipped') ? backFaceContainer : frontFaceContainer;
             const zoomTarget = activeFace.querySelector('img') || activeFace.querySelector('#gdEmbedPlayer');
 
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
+
+            // FEATURE C: Esc layer fallback system handler
+            if (e.key === 'Escape') {
+                // Layer 4 Back-step: Exit Fullscreen mode if active
+                if (document.fullscreenElement || document.webkitFullscreenElement) {
+                    e.preventDefault();
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                    reclaimFocus();
+                    return;
+                }
+                
+                // Layer 3 Back-step: Drop Zoom Scales back to zero baseline if user zoomed in
+                if (currentScale > 1) {
+                    e.preventDefault();
+                    resetTransformations();
+                    reclaimFocus();
+                    return;
+                }
+
+                // Layer 2 Back-step: Reset flipped cards back to front face naturally
+                if (card.classList.contains('is-flipped')) {
+                    e.preventDefault();
+                    btnFlip.click();
+                    reclaimFocus();
+                    return;
+                }
+            }
+
+            // FEATURE D: Shift + F Fullscreen Mode Implementation
+            if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                e.preventDefault();
+                
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    // Try to optimize and maximize the focused card face directly
+                    if (targetFaceContainer.requestFullscreen) {
+                        targetFaceContainer.requestFullscreen();
+                    } else if (targetFaceContainer.webkitRequestFullscreen) {
+                        targetFaceContainer.webkitRequestFullscreen();
+                    }
+                } else {
+                    // Clear out and exit full viewport layout
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                }
+                reclaimFocus();
+                return;
+            }
 
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { 
