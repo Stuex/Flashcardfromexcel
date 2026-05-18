@@ -147,29 +147,11 @@
             background-color: #0a0a0a;
         }
 
-        /* Responsive structural container wrapping video playback frames */
-        .video-container-wrapper {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
-
         .card-content-scroll iframe {
             width: 100%; height: 100%;
             border: none; background: transparent;
             transition: transform 0.1s ease-out;
             transform-origin: center center;
-        }
-
-        /* Focus Recovery Layer handles touch gestures cleanly without hijacking iframe interactions */
-        .video-focus-shield {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: calc(100% - 48px);
-            background: transparent;
-            z-index: 5;
-            cursor: pointer;
         }
 
         .card-content-scroll img {
@@ -276,6 +258,7 @@
         let currentScale = 1;
         let currentPanX = 0;
         let currentPanY = 0;
+        let lastKnownPlayerState = -1; // Keeps accurate sync on video player state
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -384,7 +367,6 @@
                 if (text.includes("drive.google.com")) {
                     let fileId = text.includes("/file/d/") ? text.split("/file/d/")[1].split("/")[0].split("?")[0] : (text.includes("id=") ? text.split("id=")[1].split("&")[0] : "");
                     if (fileId) {
-                        // Embedded Google Drive files are given an isolated id string to map keyboard transformations
                         htmlOutput += `<iframe id="gdEmbedPlayer" src="https://drive.google.com/file/d/${fileId}/preview" allowfullscreen></iframe>`;
                     }
                 } 
@@ -437,12 +419,7 @@
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&start=${startTime}`;
                         if (endTime) embedUrl += `&end=${endTime}`;
                         
-                        htmlOutput += `
-                            <div class="video-container-wrapper">
-                                <div class="video-focus-shield" onclick="handleShieldVideoToggle(this)" ontouchstart="handleShieldVideoToggle(this)"></div>
-                                <iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-                            </div>
-                        `;
+                        htmlOutput += `<iframe id="ytPlayer" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
                         htmlOutput += `<div class="text-centered-helper">${text}</div>`;
                     }
@@ -462,19 +439,6 @@
             return htmlOutput || `<div class="text-centered-helper"></div>`;
         }
 
-        // Programmatic toggle returns application focus to the body element immediately
-        window.handleShieldVideoToggle = function(shieldElement) {
-            const player = shieldElement.parentElement.querySelector('#ytPlayer');
-            if (player) {
-                player.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
-                // Ensure keyboard focus tracks back instantly to main page
-                setTimeout(() => {
-                    window.focus();
-                    document.body.focus();
-                }, 50);
-            }
-        };
-
         function applyGlobalTransform(target) {
             if (!target) return;
             if (currentScale < 1) {
@@ -490,7 +454,7 @@
             currentPanX = 0;
             currentPanY = 0;
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-            const mediaTarget = activeFace.querySelector('img, iframe');
+            const mediaTarget = activeFace.querySelector('img') || activeFace.querySelector('#gdEmbedPlayer') || activeFace.querySelector('#ytPlayer');
             if (mediaTarget) {
                 applyGlobalTransform(mediaTarget);
             }
@@ -642,6 +606,7 @@
 
         function startYoutubeLoopWatcher() {
             if (ytLoopInterval) clearInterval(ytLoopInterval);
+            lastKnownPlayerState = -1; 
 
             ytLoopInterval = setInterval(() => {
                 const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
@@ -664,6 +629,10 @@
                         const ytPlayer = activeFace.querySelector('#ytPlayer');
                         
                         if (ytPlayer) {
+                            if (info.playerState !== undefined) {
+                                lastKnownPlayerState = info.playerState;
+                            }
+
                             const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
                             const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
                             
@@ -675,6 +644,7 @@
                                 const originalSrc = ytPlayer.src;
                                 ytPlayer.src = '';
                                 ytPlayer.src = originalSrc;
+                                lastKnownPlayerState = -1;
                             }
                         }
                     }
@@ -683,19 +653,19 @@
         });
 
         // =========================================================
-        // UNIFIED KEYBOARD SHORTCUTS MATRIX
+        // UNIFIED APPLICATION KEYBOARD CONTROLLER ENGINE
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
             const ytPlayer = activeFace.querySelector('#ytPlayer');
             
-            // Dynamic check detects either standard image assets OR Embedded Google Drive iframe panels
+            // Explicit targeted detection for either standard images OR embedded Google Drive objects
             const zoomTarget = activeFace.querySelector('img') || activeFace.querySelector('#gdEmbedPlayer');
 
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. DUAL MEDIA ZOOM & PAN MATRIX (Handles Native Images + Google Drive Documents)
+            // 1. HARDENED MEDIA ZOOM & PAN MATRIX (Fixed to look at correct local properties)
             if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault();
@@ -719,7 +689,7 @@
                 }
 
                 if (currentScale > 1 && isAltOrCmd) {
-                    const step = 20; 
+                    const step = 25; 
                     e.preventDefault();
                     zoomTarget.style.transition = 'none';
 
@@ -733,14 +703,14 @@
                 }
             }
 
-            // 2. TEXT SCROLLING (Ctrl + Vertical Arrows)
+            // 2. TEXT PANEL SCROLL MATRIX (Ctrl + Vertical Arrow Links)
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 3. YOUTUBE CONTROLS (Standard Horizontal Arrows)
+            // 3. HORIZONTAL NATIVE YOUTUBE TIMELINE STEPPING
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && ytPlayer) {
                     e.preventDefault();
@@ -754,23 +724,26 @@
                 }
             }
 
-            // 4. FLASH CARD NAVIGATION, REVEAL, & VIDEO PLAYBACK
+            // 4. FLASHCARD APPLICATION DECK CONTROLS & SPACEBAR MATRIX
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
 
-                // ENTER KEY -> Direct script execution link to the structural Flip Card Button element
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     if (!btnFlip.disabled) btnFlip.click();
                     return;
                 }
 
-                // SPACEBAR -> Triggers global YouTube frame Play/Pause event command rules
+                // SPACEBAR RULE: Uses calculated postMessage commands because toggleVideo doesn't exist in YouTube iframe API
                 if (e.code === 'Space' || e.key === ' ') {
                     if (ytPlayer) {
                         e.preventDefault();
-                        ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'toggleVideo', args: [] }), '*');
+                        if (lastKnownPlayerState === 1) { // 1 means Playing
+                            ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
+                        } else { // Paused (-1, 2, etc.)
+                            ytPlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+                        }
                     }
                     return;
                 }
