@@ -385,6 +385,9 @@
         // =========================================================
         // FIXED LOGIC: Loops the video while fully allowing ads
         // =========================================================
+        // We need a separate variable to track if the timeout is already running
+        let isClearingGracePeriod = false; 
+
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
@@ -400,15 +403,21 @@
                             (info.playerState === 3 && info.currentTime === undefined)
                         ) {
                             adGracePeriod = true; // Turn safety flag ON while ad is active
+                            isClearingGracePeriod = false; // Reset the timer flag
                             return; // Bypass looping engines completely
                         }
 
-                        // 2. THE GRACE WINDOW FIX
+                        // 2. THE GRACE WINDOW FIX (Corrected)
                         // If an advertisement just finished, wait 1 second before allowing loop checking
                         if (adGracePeriod) {
-                            setTimeout(() => {
-                                adGracePeriod = false; // Turn safety lock off after 1 second
-                            }, 1000);
+                            // ONLY start the timer if one isn't already running!
+                            if (!isClearingGracePeriod) {
+                                isClearingGracePeriod = true;
+                                setTimeout(() => {
+                                    adGracePeriod = false; // Turn safety lock off after 1 second
+                                    isClearingGracePeriod = false; // Reset our timer tracker
+                                }, 1000);
+                            }
                             return; // Stop execution here to let main video start buffering cleanly
                         }
 
