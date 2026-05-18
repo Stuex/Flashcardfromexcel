@@ -168,6 +168,9 @@
         let lastKnownPlayerState = -1; 
         let lastKnownCurrentTime = 0;
         let ytLoopInterval = null;
+        
+        // Safety lock flag for managing ad transitions smoothly
+        let adGracePeriod = false;
 
         const card = document.getElementById('flashcard');
         const cardFront = document.getElementById('cardFront');
@@ -223,7 +226,7 @@
         function adjustTypography(element, text) {
             if (!text) text = "";
             const helper = element.querySelector('.text-centered-helper');
-            if (!helper) return; // Prevent crashing if card only contains an iframe/image
+            if (!helper) return; 
             
             helper.style.marginTop = "0px";
             const len = text.length;
@@ -380,57 +383,65 @@
         }
 
         // =========================================================
-// KEEP THIS: This loops the video at start/end boundaries
-// =========================================================
-window.addEventListener('message', (e) => {
-    if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
-        try {
-            const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-            if (data && data.event === 'infoDelivery' && data.info) {
-                const info = data.info;
-                
-                // 1. EXTENSIVE AD PROTECTION
-                // Check every possible property YouTube broadcasts when an advertisement plays
-                if (
-                    info.adState === 1 || 
-                    info.isAdPlaying === true || 
-                    data.adState === 1 || 
-                    (info.playerState === 3 && info.currentTime === undefined) // Ad buffering state safety
-                ) {
-                    return; // Safely bypass code block during ads
-                }
+        // FIXED LOGIC: Loops the video while fully allowing ads
+        // =========================================================
+        window.addEventListener('message', (e) => {
+            if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
+                try {
+                    const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                    if (data && data.event === 'infoDelivery' && data.info) {
+                        const info = data.info;
+                        
+                        // 1. EXTENSIVE AD DETECTION
+                        if (
+                            info.adState === 1 || 
+                            info.isAdPlaying === true || 
+                            data.adState === 1 || 
+                            (info.playerState === 3 && info.currentTime === undefined)
+                        ) {
+                            adGracePeriod = true; // Turn safety flag ON while ad is active
+                            return; // Bypass looping engines completely
+                        }
 
-                // 2. STATE SYNCHRONIZATION
-                // Track video data continuously to keep spacebar and arrow keys working smoothly
-                if (info.currentTime !== undefined) {
-                    lastKnownCurrentTime = info.currentTime;
-                }
-                if (info.playerState !== undefined) {
-                    lastKnownPlayerState = info.playerState;
-                }
+                        // 2. THE GRACE WINDOW FIX
+                        // If an advertisement just finished, wait 1 second before allowing loop checking
+                        if (adGracePeriod) {
+                            setTimeout(() => {
+                                adGracePeriod = false; // Turn safety lock off after 1 second
+                            }, 1000);
+                            return; // Stop execution here to let main video start buffering cleanly
+                        }
 
-                const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
-                const ytPlayer = activeFace.querySelector('#ytPlayer');
-                
-                if (ytPlayer) {
-                    const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
-                    const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
-                    
-                    const isVideoEnded = info.playerState === 0;
-                    const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
-                    const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+                        // 3. STATE SYNCHRONIZATION
+                        if (info.currentTime !== undefined) {
+                            lastKnownCurrentTime = info.currentTime;
+                        }
+                        if (info.playerState !== undefined) {
+                            lastKnownPlayerState = info.playerState;
+                        }
 
-                    // If loop condition is met (outside of ads), reset iframe cleanly
-                    if (isVideoEnded || isResetToZero || isPastEndLimit) {
-                        const originalSrc = ytPlayer.src;
-                        ytPlayer.src = '';
-                        ytPlayer.src = originalSrc;
+                        const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                        const ytPlayer = activeFace.querySelector('#ytPlayer');
+                        
+                        if (ytPlayer) {
+                            const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
+                            const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
+                            
+                            const isVideoEnded = info.playerState === 0;
+                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                            const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
+
+                            // Loop execution trigger
+                            if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                                const originalSrc = ytPlayer.src;
+                                ytPlayer.src = '';
+                                ytPlayer.src = originalSrc;
+                            }
+                        }
                     }
-                }
+                } catch (err) {}
             }
-        } catch (err) {}
-    }
-});
+        });
 
         // =========================================================
         // KEYBOARD ENGINE
@@ -443,7 +454,6 @@ window.addEventListener('message', (e) => {
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. ZOOM & PAN
             if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault(); currentScale += 0.2; if (currentScale > 5) currentScale = 5;
@@ -464,14 +474,12 @@ window.addEventListener('message', (e) => {
                 }
             }
 
-            // 2. TEXT SCROLLING
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 3. HORIZONTAL NATIVE YOUTUBE TIMELINE STEPPING
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && ytPlayer) {
                     e.preventDefault();
@@ -489,13 +497,11 @@ window.addEventListener('message', (e) => {
                 }
             }
 
-            // 4. NAVIGATION & SPACEBAR
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
                 if (e.key === 'Enter') { e.preventDefault(); if (!btnFlip.disabled) btnFlip.click(); return; }
 
-                // SPACEBAR -> YouTube Play/Pause
                 if (e.code === 'Space' || e.key === ' ') {
                     if (ytPlayer) {
                         e.preventDefault();
