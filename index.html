@@ -447,7 +447,7 @@
         });
 
         // =========================================================
-        // KEYBOARD ENGINE
+        // KEYBOARD ENGINE (REPLACE YOUR ENTIRE COPIED BLOCK WITH THIS)
         // =========================================================
         window.addEventListener('keydown', (e) => {
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
@@ -456,6 +456,32 @@
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
+            // 1. GLOBAL OVERRIDE FOR NAVIGATION & FLIP (Forces window focus back)
+            if (!isAltOrCmd && !isCtrl) {
+                if (e.key === 'ArrowUp') { 
+                    e.preventDefault(); 
+                    if (!btnPrev.disabled) btnPrev.click(); 
+                    window.focus(); 
+                    document.getElementById('mainContainer').focus();
+                    return; 
+                }
+                if (e.key === 'ArrowDown') { 
+                    e.preventDefault(); 
+                    if (!btnNext.disabled) btnNext.click(); 
+                    window.focus(); 
+                    document.getElementById('mainContainer').focus();
+                    return; 
+                }
+                if (e.key === 'Enter') { 
+                    e.preventDefault(); 
+                    if (!btnFlip.disabled) btnFlip.click(); 
+                    window.focus(); 
+                    document.getElementById('mainContainer').focus();
+                    return; 
+                }
+            }
+
+            // 2. ZOOM CONTROLS
             if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault(); currentScale += 0.2; if (currentScale > 5) currentScale = 5;
@@ -476,12 +502,14 @@
                 }
             }
 
+            // 3. SCROLL CONTROLS
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
+            // 4. YOUTUBE SEEK & PLAY/PAUSE CONTROLS
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && activeYTPlayer && activeYTPlayer.getCurrentTime) {
                     e.preventDefault();
@@ -495,13 +523,6 @@
                     activeYTPlayer.seekTo(seekPos, true);
                     return;
                 }
-            }
-
-            if (!isAltOrCmd && !isCtrl) {
-                if (e.key === 'ArrowUp') { e.preventDefault(); if (!btnPrev.disabled) btnPrev.click(); return; }
-                if (e.key === 'ArrowDown') { e.preventDefault(); if (!btnNext.disabled) btnNext.click(); return; }
-                if (e.key === 'Enter') { e.preventDefault(); if (!btnFlip.disabled) btnFlip.click(); return; }
-
                 if (e.code === 'Space' || e.key === ' ') {
                     if (activeYTPlayer && activeYTPlayer.getPlayerState) {
                         e.preventDefault();
@@ -512,7 +533,7 @@
                     return;
                 }
             }
-        });
+        }, true); // Note the "true" here at the end!
 
         function applyTouchScrolling(element) {
             let startY = 0, currentScrollTop = 0;
