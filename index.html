@@ -37,7 +37,6 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* Essential for maintaining shortcut programmatic event targeting */
         .app-container {
             display: flex; flex-direction: column;
             width: 100%; 
@@ -170,8 +169,9 @@
         let currentPanX = 0;
         let currentPanY = 0;
         
-        // Active YouTube API instance tracking
-        let activeYTPlayer = null;
+        // Active YouTube API instance tracking & mapping
+        let activePlayers = new Map(); // Tracks both front & back players independently
+        let activeYTPlayer = null;     // The currently visible active player
         let ytTimeCheckInterval = null;
 
         const container = document.getElementById('mainContainer');
@@ -185,32 +185,20 @@
         const counterOverlay = document.getElementById('counterOverlay');
         const uploadLabel = document.getElementById('uploadLabel');
 
-        // Global YouTube SDK handler
         window.onYouTubeIframeAPIReady = function() { };
 
-        // Automatically pull focus back when the container is clicked
-        container.addEventListener('click', () => {
-            reclaimFocus();
+        // Auto-blur controls immediately to stop them stealing Keyboard Shortcut Focus
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('focus', function() { this.blur(); });
         });
 
         function reclaimFocus() {
             container.focus();
-            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
-                document.activeElement.blur(); 
-            }
-            window.focus();
         }
 
-        // CONTINUOUS FOCUS MONITOR: Strips focus away from YouTube iframes 
-        // to keep your main layout responsive to keyboard inputs.
-        setInterval(() => {
-            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
-                // Check if it's our YouTube player
-                if (document.activeElement.classList.contains('yt-cards-player') || document.activeElement.id === 'gdEmbedPlayer') {
-                    reclaimFocus();
-                }
-            }
-        }, 200);
+        container.addEventListener('click', () => {
+            reclaimFocus();
+        });
 
         function arrayBufferToBase64(buffer) {
             let binary = ''; const bytes = new Uint8Array(buffer);
@@ -233,10 +221,6 @@
                 img.onerror = () => resolve(base64Str);
             });
         }
-
-        btnFlip.addEventListener('click', () => {
-            if (flashcards.length > 0) { resetTransformations(); card.classList.toggle('is-flipped'); }
-        });
 
         function showCounter() {
             counterOverlay.innerText = `${currentIndex + 1} / ${flashcards.length}`;
@@ -334,7 +318,6 @@
 
             img.addEventListener('touchstart', (e) => {
                 const currentTime = new Date().getTime(); const tapLength = currentTime - lastTap;
-                
                 if (tapLength < 300 && tapLength > 0 && e.touches.length === 1) {
                     currentScale = currentScale > 1 ? 1 : 2.5; currentPanX = 0; currentPanY = 0;
                     img.style.transition = 'transform 0.3s ease-in-out'; applyGlobalTransform(img);
@@ -372,23 +355,39 @@
             });
         }
 
+        // ==========================================
+        // UI & YOUTUBE PLAYER MANAGEMENT
+        // ==========================================
         function updateUI() {
             if (flashcards.length === 0) return;
-            card.classList.remove('is-flipped'); resetTransformations();
+            card.classList.remove('is-flipped'); 
+            resetTransformations();
             
-            if (ytTimeCheckInterval) clearInterval(ytTimeCheckInterval);
-            if (activeYTPlayer) {
-                try { activeYTPlayer.destroy(); } catch(e) {}
-                activeYTPlayer = null;
-            }
+            // CLEAR TIMERS AND DESTROY OLD YOUTUBE PLAYERS
+            if (ytTimeCheckInterval) { clearInterval(ytTimeCheckInterval); ytTimeCheckInterval = null; }
+            activePlayers.forEach(player => {
+                try { player.destroy(); } catch(e) {}
+            });
+            activePlayers.clear();
+            activeYTPlayer = null;
 
             setTimeout(() => {
                 const currentCard = flashcards[currentIndex];
-                cardFront.innerHTML = processContent(currentCard.front); cardBack.innerHTML = processContent(currentCard.back);
-                adjustTypography(cardFront, currentCard.front.text); adjustTypography(cardBack, currentCard.back.text);
-                cardFront.querySelectorAll('img').forEach(enableImagePanZoom); cardBack.querySelectorAll('img').forEach(enableImagePanZoom);
-                cardFront.scrollTop = 0; cardBack.scrollTop = 0; showCounter();
-                btnPrev.disabled = currentIndex === 0; btnNext.disabled = currentIndex === flashcards.length - 1; btnFlip.disabled = false;
+                cardFront.innerHTML = processContent(currentCard.front); 
+                cardBack.innerHTML = processContent(currentCard.back);
+                
+                adjustTypography(cardFront, currentCard.front.text); 
+                adjustTypography(cardBack, currentCard.back.text);
+                
+                cardFront.querySelectorAll('img').forEach(enableImagePanZoom); 
+                cardBack.querySelectorAll('img').forEach(enableImagePanZoom);
+                
+                cardFront.scrollTop = 0; cardBack.scrollTop = 0; 
+                showCounter();
+                
+                btnPrev.disabled = currentIndex === 0; 
+                btnNext.disabled = currentIndex === flashcards.length - 1; 
+                btnFlip.disabled = false;
                 
                 setTimeout(initializeActiveCardYouTubeAPI, 100);
             }, 150);
@@ -397,33 +396,67 @@
         btnPrev.addEventListener('click', () => { if (currentIndex > 0) { currentIndex--; updateUI(); } });
         btnNext.addEventListener('click', () => { if (currentIndex < flashcards.length - 1) { currentIndex++; updateUI(); } });
 
+        // Unified flip event
+        btnFlip.addEventListener('click', () => {
+            if (flashcards.length > 0) { 
+                resetTransformations(); 
+                card.classList.toggle('is-flipped'); 
+                setTimeout(initializeActiveCardYouTubeAPI, 400); // Wait for card animation
+            }
+        });
+
         function initializeActiveCardYouTubeAPI() {
+            // STOP MULTIPLE TIMERS
+            if (ytTimeCheckInterval) {
+                clearInterval(ytTimeCheckInterval);
+                ytTimeCheckInterval = null;
+            }
+
+            // PAUSE ALL PLAYERS (Stops Audio Ghosting on Flip)
+            activePlayers.forEach(player => {
+                try { 
+                    if (typeof player.pauseVideo === 'function') {
+                        player.pauseVideo(); 
+                    }
+                } catch(e) {}
+            });
+
             const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
             const ytIframe = activeFace.querySelector('.yt-cards-player');
-            if (!ytIframe || typeof YT === 'undefined' || !YT.Player) return;
+
+            if (!ytIframe || typeof YT === 'undefined' || !YT.Player) {
+                activeYTPlayer = null;
+                return;
+            }
 
             const targetStartTime = parseFloat(ytIframe.getAttribute('data-start')) || 0;
             const targetEndTime = ytIframe.getAttribute('data-end') ? parseFloat(ytIframe.getAttribute('data-end')) : null;
-            let setupTimestampApplied = false;
 
-            activeYTPlayer = new YT.Player(ytIframe, {
-                events: {
-                    'onStateChange': function(event) {
-                        if (event.data === YT.PlayerState.PLAYING) {
-                            const isAdPlaying = activeYTPlayer.getAdState && activeYTPlayer.getAdState() === 1;
-                            if (!isAdPlaying) {
-                                if (!setupTimestampApplied && targetStartTime > 0) {
-                                    setupTimestampApplied = true;
-                                    activeYTPlayer.seekTo(targetStartTime, true);
+            let player = activePlayers.get(ytIframe);
+
+            // INITIALIZE NEW PLAYER IF IT DOESN'T EXIST YET
+            if (!player) {
+                player = new YT.Player(ytIframe, {
+                    events: {
+                        'onStateChange': function(event) {
+                            if (event.data === YT.PlayerState.PLAYING) {
+                                const isAdPlaying = player.getAdState && player.getAdState() === 1;
+                                if (!isAdPlaying && !ytIframe.dataset.timestampApplied && targetStartTime > 0) {
+                                    ytIframe.dataset.timestampApplied = 'true';
+                                    player.seekTo(targetStartTime, true);
                                 }
                             }
                         }
                     }
-                }
-            });
+                });
+                activePlayers.set(ytIframe, player); // Map to element
+            }
 
+            activeYTPlayer = player;
+
+            // START DEDICATED TRACKING INTERVAL FOR THIS SPECIFIC PLAYER
             ytTimeCheckInterval = setInterval(() => {
-                if (!activeYTPlayer || !activeYTPlayer.getCurrentTime || !activeYTPlayer.getPlayerState) return;
+                if (!activeYTPlayer || typeof activeYTPlayer.getCurrentTime !== 'function' || typeof activeYTPlayer.getPlayerState !== 'function') return;
                 
                 try {
                     const isAdPlaying = activeYTPlayer.getAdState && activeYTPlayer.getAdState() === 1;
@@ -434,21 +467,15 @@
 
                     const hasEnded = currentState === YT.PlayerState.ENDED;
                     const hasPassedEndLimit = targetEndTime && currentTime >= targetEndTime;
-                    const hasResetBuggedBack = targetStartTime > 0 && setupTimestampApplied && currentTime > 0 && currentTime < (targetStartTime - 1.5);
+                    const hasResetBuggedBack = targetStartTime > 0 && ytIframe.dataset.timestampApplied && currentTime > 0 && currentTime < (targetStartTime - 1.5);
 
                     if (hasEnded || hasPassedEndLimit || hasResetBuggedBack) {
                         activeYTPlayer.seekTo(targetStartTime > 0 ? targetStartTime : 0, true);
-                        activeYTPlayer.playVideo();
+                        activeYTPlayer.pauseVideo(); // Stop playing at the end instead of looping
                     }
                 } catch(e) {}
             }, 400);
         }
-
-        btnFlip.addEventListener('click', () => {
-            if (flashcards.length > 0) {
-                setTimeout(initializeActiveCardYouTubeAPI, 400);
-            }
-        });
 
         // =========================================================
         // SYSTEM ENGINE KEYBOARD INTERCEPTOR
@@ -460,29 +487,24 @@
             const isAltOrCmd = e.altKey || e.metaKey;
             const isCtrl = e.ctrlKey;
 
-            // 1. GLOBAL HIGH-PRIORITY SHORTCUTS (ArrowUp, ArrowDown, Enter)
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowUp') { 
                     e.preventDefault(); 
                     if (!btnPrev.disabled) btnPrev.click(); 
-                    reclaimFocus();
                     return; 
                 }
                 if (e.key === 'ArrowDown') { 
                     e.preventDefault(); 
                     if (!btnNext.disabled) btnNext.click(); 
-                    reclaimFocus();
                     return; 
                 }
                 if (e.key === 'Enter') { 
                     e.preventDefault(); 
                     if (!btnFlip.disabled) btnFlip.click(); 
-                    reclaimFocus();
                     return; 
                 }
             }
 
-            // 2. ZOOM ENGINE CONTROLS
             if (zoomTarget) {
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault(); currentScale += 0.2; if (currentScale > 5) currentScale = 5;
@@ -503,14 +525,12 @@
                 }
             }
 
-            // 3. INTERNAL CONTENT AXIS SCROLLING
             if (isCtrl) {
                 const scrollStep = 40;
                 if (e.key === 'ArrowUp') { e.preventDefault(); activeFace.scrollTop -= scrollStep; return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); activeFace.scrollTop += scrollStep; return; }
             }
 
-            // 4. EMBED MEDIA SEEK & PLAY/PAUSE CONTROLS
             if (!isAltOrCmd && !isCtrl) {
                 if (e.key === 'ArrowLeft' && activeYTPlayer && activeYTPlayer.getCurrentTime) {
                     e.preventDefault();
