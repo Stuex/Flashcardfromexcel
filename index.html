@@ -388,6 +388,11 @@
         // We need a separate variable to track if the timeout is already running
         let isClearingGracePeriod = false; 
 
+        // =========================================================
+        // FIXED LOGIC: Loops the video while fully allowing ads
+        // =========================================================
+        let isClearingGracePeriod = false; 
+
         window.addEventListener('message', (e) => {
             if (typeof e.origin === 'string' && e.origin.includes('youtube.com')) {
                 try {
@@ -402,23 +407,37 @@
                             data.adState === 1 || 
                             (info.playerState === 3 && info.currentTime === undefined)
                         ) {
-                            adGracePeriod = true; // Turn safety flag ON while ad is active
-                            isClearingGracePeriod = false; // Reset the timer flag
-                            return; // Bypass looping engines completely
+                            adGracePeriod = true; // Lock down safety flag
+                            isClearingGracePeriod = false;
+                            lastKnownCurrentTime = 0; // Prevent bad loop triggers from old data
+                            return; // Bypass looping engine completely
                         }
 
-                        // 2. THE GRACE WINDOW FIX (Corrected)
-                        // If an advertisement just finished, wait 1 second before allowing loop checking
+                        // 2. AD EXIT GRACE CONTROLLER
                         if (adGracePeriod) {
-                            // ONLY start the timer if one isn't already running!
-                            if (!isClearingGracePeriod) {
-                                isClearingGracePeriod = true;
-                                setTimeout(() => {
-                                    adGracePeriod = false; // Turn safety lock off after 1 second
-                                    isClearingGracePeriod = false; // Reset our timer tracker
-                                }, 1000);
+                            const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
+                            const ytPlayer = activeFace.querySelector('#ytPlayer');
+                            let startSec = 0;
+                            if (ytPlayer) {
+                                startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
                             }
-                            return; // Stop execution here to let main video start buffering cleanly
+
+                            // Wait until video data is actually moving forward past start time constraints
+                            if (info.currentTime !== undefined && info.currentTime >= startSec) {
+                                if (!isClearingGracePeriod) {
+                                    isClearingGracePeriod = true;
+                                    setTimeout(() => {
+                                        adGracePeriod = false; 
+                                        isClearingGracePeriod = false;
+                                    }, 1500); // 1.5s window to ensure playback stability
+                                }
+                            }
+                            
+                            // Synchronize time safely even during grace periods without loop testing
+                            if (info.currentTime !== undefined) {
+                                lastKnownCurrentTime = info.currentTime;
+                            }
+                            return; 
                         }
 
                         // 3. STATE SYNCHRONIZATION
@@ -432,16 +451,23 @@
                         const activeFace = card.classList.contains('is-flipped') ? cardBack : cardFront;
                         const ytPlayer = activeFace.querySelector('#ytPlayer');
                         
-                        if (ytPlayer) {
+                        if (ytPlayer && !adGracePeriod) {
                             const startSec = parseInt(ytPlayer.getAttribute('data-start') || 0);
                             const endSec = ytPlayer.getAttribute('data-end') ? parseInt(ytPlayer.getAttribute('data-end')) : null;
                             
                             const isVideoEnded = info.playerState === 0;
-                            const isResetToZero = info.currentTime !== undefined && info.currentTime > 0 && info.currentTime < (startSec - 1);
+                            
+                            // Ensure time is initialized before making sub-second logic boundaries
+                            const isResetToZero = info.currentTime !== undefined && 
+                                                  info.currentTime > 0.8 && 
+                                                  info.currentTime < (startSec - 1);
+                                                  
                             const isPastEndLimit = endSec && info.currentTime !== undefined && info.currentTime >= endSec;
 
                             // Loop execution trigger
                             if (isVideoEnded || isResetToZero || isPastEndLimit) {
+                                // Clear stored parameters to prevent immediate loop execution upon refresh
+                                lastKnownCurrentTime = startSec;
                                 const originalSrc = ytPlayer.src;
                                 ytPlayer.src = '';
                                 ytPlayer.src = originalSrc;
