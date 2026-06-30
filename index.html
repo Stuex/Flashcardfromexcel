@@ -82,15 +82,12 @@
         .card-face.card-back { transform: rotateY(180deg); background-color: #0a0a0a; }
 
         .card-content-scroll {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    padding: 24px 16px; box-sizing: border-box;
-    overflow-y: auto !important; -webkit-overflow-scrolling: touch !important;
-    word-wrap: break-word; font-size: 2.5rem; font-weight: 500;
-    text-align: center;
-    white-space: pre-wrap; /* Tells HTML to respect all line-breaks and multi-spaces from Excel */
-}
-
-        
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            padding: 24px 16px; box-sizing: border-box;
+            overflow-y: auto !important; -webkit-overflow-scrolling: touch !important;
+            word-wrap: break-word; font-size: 2.5rem; font-weight: 500;
+            text-align: center;
+        }
 
         .text-centered-helper { display: block; width: 100%; margin: 0; padding: 0; }
 
@@ -654,52 +651,9 @@
                     const worksheet = workbook.worksheets[0]; flashcards = []; const rowDataMap = new Map();
 
                     worksheet.eachRow((row, rowNumber) => {
-    const rowIndex = rowNumber - 1;
-    
-    // Helper function to extract text while converting Excel Rich Text styling to HTML tags
-    const getCellHtml = (cell) => {
-        if (!cell.value) return "";
-        
-        // If it's a rich text cell containing mixed formatting
-        if (cell.value.richText && Array.isArray(cell.value.richText)) {
-            return cell.value.richText.map(run => {
-                let text = run.text || "";
-                if (!text) return "";
-                // Escape simple HTML characters safely
-                text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                
-                // Wrap in styling tags depending on Excel attributes
-                if (run.font) {
-                    if (run.font.bold) text = `<strong>${text}</strong>`;
-                    if (run.font.italic) text = `<em>${text}</em>`;
-                    if (run.font.underline) text = `<u>${text}</u>`;
-                    if (run.font.strike) text = `<del>${text}</del>`;
-                    if (run.font.color && run.font.color.argb) {
-                        // Extract hex color (Excel uses AARRGGBB, we slice to get RRGGBB)
-                        const hex = run.font.color.argb.length === 8 ? run.font.color.argb.slice(2) : run.font.color.argb;
-                        text = `<span style="color:#${hex};">${text}</span>`;
-                    }
-                }
-                return text;
-            }).join("");
-        }
-        
-        // Fallback for standard plain text cells
-        return cell.text ? cell.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
-    };
-
-    const frontText = getCellHtml(row.getCell(1));
-    const backText = getCellHtml(row.getCell(2));
-
-    if (frontText.trim() || backText.trim()) {
-        rowDataMap.set(rowIndex, { 
-            frontText: frontText.trim(), 
-            frontImage: null, 
-            backText: backText.trim(), 
-            backImage: null 
-        });
-    }
-});
+                        const rowIndex = rowNumber - 1, frontText = row.getCell(1).text || "", backText = row.getCell(2).text || "";
+                        if (frontText.trim() || backText.trim()) rowDataMap.set(rowIndex, { frontText: frontText.trim(), frontImage: null, backText: backText.trim(), backImage: null });
+                    });
 
                     const images = worksheet.getImages(); let processedCount = 0;
                     for (const image of images) {
