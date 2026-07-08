@@ -89,7 +89,10 @@
             text-align: center;
         }
 
-        .text-centered-helper { display: block; width: 100%; margin: 0; padding: 0; }
+        .text-centered-helper { 
+            display: block; width: 100%; margin: 0; padding: 0; 
+            white-space: pre-wrap; 
+        }
 
         .card-content-scroll::-webkit-scrollbar { width: 6px; }
         .card-content-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -312,11 +315,11 @@
                         let embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0`;
                         htmlOutput += `<iframe class="yt-cards-player" data-start="${startTime}" data-end="${endTime || ''}" src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     } else {
-                        htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+                        htmlOutput += `<div class="text-centered-helper">${contentData.html || text}</div>`;
                     }
                 } 
                 else if (text.match(/\.(jpeg|jpg|gif|png|webp)$/i)) htmlOutput += `<img src="${text}">`;
-                else htmlOutput += `<div class="text-centered-helper">${text}</div>`;
+                else htmlOutput += `<div class="text-centered-helper">${contentData.html || text}</div>`;
             }
 
             if (contentData.image) htmlOutput += `<img src="${contentData.image}" style="${contentData.text ? 'margin-top: 20px;' : ''}">`;
@@ -651,8 +654,37 @@
                     const worksheet = workbook.worksheets[0]; flashcards = []; const rowDataMap = new Map();
 
                     worksheet.eachRow((row, rowNumber) => {
-                        const rowIndex = rowNumber - 1, frontText = row.getCell(1).text || "", backText = row.getCell(2).text || "";
-                        if (frontText.trim() || backText.trim()) rowDataMap.set(rowIndex, { frontText: frontText.trim(), frontImage: null, backText: backText.trim(), backImage: null });
+                        const rowIndex = rowNumber - 1;
+                        
+                        const getCellData = (cell) => {
+                            if (!cell || !cell.value) return { text: "", html: "" };
+                            let rawText = cell.text || "";
+                            let htmlText = rawText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                            
+                            if (cell.value && cell.value.richText) {
+                                rawText = cell.value.richText.map(r => r.text || "").join("");
+                                htmlText = cell.value.richText.map(run => {
+                                    let t = (run.text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                                    if (run.font) {
+                                        if (run.font.bold) t = `<b>${t}</b>`;
+                                        if (run.font.italic) t = `<i>${t}</i>`;
+                                        if (run.font.underline) t = `<u>${t}</u>`;
+                                    }
+                                    return t;
+                                }).join("");
+                            }
+                            return { text: rawText, html: htmlText };
+                        };
+
+                        const frontData = getCellData(row.getCell(1));
+                        const backData = getCellData(row.getCell(2));
+
+                        if (frontData.text.trim() || backData.text.trim()) {
+                            rowDataMap.set(rowIndex, { 
+                                frontText: frontData.text.trim(), frontHtml: frontData.html.trim(), frontImage: null, 
+                                backText: backData.text.trim(), backHtml: backData.html.trim(), backImage: null 
+                            });
+                        }
                     });
 
                     const images = worksheet.getImages(); let processedCount = 0;
@@ -664,7 +696,7 @@
                         if (imgData) {
                             const rawUri = `data:image/${imgData.extension};base64,${arrayBufferToBase64(imgData.buffer)}`;
                             const optimizedUri = await compressImageURI(rawUri);
-                            if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontImage: null, backText: "", backImage: null });
+                            if (!rowDataMap.has(rowIndex)) rowDataMap.set(rowIndex, { frontText: "", frontHtml: "", frontImage: null, backText: "", backHtml: "", backImage: null });
                             const cardData = rowDataMap.get(rowIndex);
                             if (colIndex === 0) cardData.frontImage = optimizedUri; else if (colIndex === 1) cardData.backImage = optimizedUri;
                         }
@@ -673,7 +705,12 @@
                     const sortedIndices = Array.from(rowDataMap.keys()).sort((a, b) => a - b);
                     sortedIndices.forEach(idx => {
                         const data = rowDataMap.get(idx);
-                        if (data.frontText || data.frontImage || data.backText || data.backImage) flashcards.push({ front: { text: data.frontText, image: data.frontImage }, back: { text: data.backText, image: data.backImage } });
+                        if (data.frontText || data.frontImage || data.backText || data.backImage) {
+                            flashcards.push({ 
+                                front: { text: data.frontText, html: data.frontHtml, image: data.frontImage }, 
+                                back: { text: data.backText, html: data.backHtml, image: data.backImage } 
+                            });
+                        }
                     });
 
                     if (flashcards.length > 0) {
